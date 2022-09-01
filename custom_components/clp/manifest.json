@@ -5,7 +5,7 @@
   "documentation": "https://github.com/thematrixdev/home-assistant-clp",
   "config_flow": true,
   "codeowners": ["@thematrixdev"],
-  "requirements": ["selenium"],
+  "requirements": ["selenium", "webdriver-manager"],
   "iot_class": "cloud_polling",
   "loggers": ["clp"]
 }
