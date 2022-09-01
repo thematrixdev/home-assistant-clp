@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "domain": "clp",
+  "name": "CLP",
+  "documentation": "https://github.com/thematrixdev/home-assistant-clp",
+  "config_flow": true,
+  "codeowners": ["@thematrixdev"],
+  "requirements": ["selenium"],
+  "iot_class": "cloud_polling",
+  "loggers": ["clp"]
+}
