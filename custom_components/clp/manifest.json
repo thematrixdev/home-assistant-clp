@@ -3,6 +3,7 @@
   "domain": "clp",
   "name": "CLP",
   "documentation": "https://github.com/thematrixdev/home-assistant-clp",
+  "issue_tracker": "https://github.com/thematrixdev/home-assistant-clp/issues",
   "config_flow": true,
   "codeowners": ["@thematrixdev"],
   "requirements": ["selenium", "webdriver-manager"],
