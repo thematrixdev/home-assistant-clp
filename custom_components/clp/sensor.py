@@ -17,6 +17,7 @@ from homeassistant.const import (
     CONF_NAME,
     CONF_USERNAME,
     CONF_PASSWORD,
+    CONF_TIMEOUT,
 )
 from homeassistant.const import (
     ENERGY_KILO_WATT_HOUR,
@@ -36,6 +37,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_NAME): cv.string,
     vol.Required(CONF_USERNAME): cv.string,
     vol.Required(CONF_PASSWORD): cv.string,
+    vol.Optional(CONF_TIMEOUT, default=30): cv.positive_int,
 })
 
 async def async_setup_platform(
@@ -47,6 +49,7 @@ async def async_setup_platform(
     name = config.get(CONF_NAME)
     username = config.get(CONF_USERNAME)
     password = config.get(CONF_PASSWORD)
+    timeout = config.get(CONF_TIMEOUT)
 
     async_add_entities(
         [
@@ -54,6 +57,7 @@ async def async_setup_platform(
                 name=name,
                 username=username,
                 password=password,
+                timeout=timeout,
             ),
         ],
         update_before_add=True,
@@ -74,10 +78,12 @@ class CLPSensor(SensorEntity):
         name: str,
         username: str,
         password: str,
+        timeout: int,
     ) -> None:
         self._name = name
         self._username = username
         self._password = password
+        self._timeout = timeout
         self._attr_device_class = SensorDeviceClass.ENERGY
         self._attr_native_value = 0
         self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
@@ -99,7 +105,7 @@ class CLPSensor(SensorEntity):
 
         assert "登入賬戶 - 中電" in driver.title
 
-        WebDriverWait(driver, 30, 1).until(
+        WebDriverWait(driver, self._timeout, 1).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.login-rt-loginbtn'))
         )
 
@@ -109,7 +115,7 @@ class CLPSensor(SensorEntity):
         )
         btn_login.click()
 
-        WebDriverWait(driver, 30, 1).until(
+        WebDriverWait(driver, self._timeout, 1).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.login-password'))
         )
 
@@ -119,7 +125,7 @@ class CLPSensor(SensorEntity):
         )
         btn_password.click()
 
-        WebDriverWait(driver, 30, 1).until(
+        WebDriverWait(driver, self._timeout, 1).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, '#personal_user_nametext'))
         )
 
@@ -129,7 +135,7 @@ class CLPSensor(SensorEntity):
         )
         input_username.send_keys(self._username)
 
-        WebDriverWait(driver, 30, 1).until(
+        WebDriverWait(driver, self._timeout, 1).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, '#personal_passwordpassword'))
         )
 
@@ -139,7 +145,7 @@ class CLPSensor(SensorEntity):
         )
         input_password.send_keys(self._password)
 
-        WebDriverWait(driver, 30, 1).until(
+        WebDriverWait(driver, self._timeout, 1).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, 'label[for="passwordLogin_remembercheckbox"]'))
         )
 
@@ -149,7 +155,7 @@ class CLPSensor(SensorEntity):
         )
         input_remember.click()
 
-        WebDriverWait(driver, 30, 1).until(
+        WebDriverWait(driver, self._timeout, 1).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, '#passwordLogin button[type="submit"]'))
         )
 
@@ -159,7 +165,7 @@ class CLPSensor(SensorEntity):
         )
         btn_signin.click()
 
-        WebDriverWait(driver, 30, 1).until(
+        WebDriverWait(driver, self._timeout, 1).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, 'meta[name="csrf-token"]'))
         )
         meta_csrf_token = driver.find_element(

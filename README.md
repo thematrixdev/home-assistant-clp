@@ -41,12 +41,16 @@ RUN pip3 install selenium webdriver-manager
 ```
 sensor:
   - platform: clp
-    name: 'WHATEVER_NAME'
-    username: 'CLP_USERNAME'
-    password: 'CLP_PASSWORD'
-    scan_interval: 3600
+    name: 'CLP' # whatever name you like
+    username: '' # CLP web site username
+    password: '' # CLP web site password
+    timeout: 30 # connection timeout in second
+    scan_interval: 3600 # how often to refresh data, in second
 ```
 2. Restart Home-Assistant
+
+## Common problem
+- For slower hardware device, `TIMEOUT` may happen. Increase `timeout` in `configuration.yaml`
 
 ## Debug
 1. SSH and run:
