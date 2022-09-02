@@ -6,27 +6,26 @@
 - CLP website credentials
 
 ## For `Home Assistant Container`
-Use an image like this:
+- Use an image like this:
 ```
 FROM ghcr.io/home-assistant/home-assistant:stable
 RUN apk add icu-data-full firefox
-RUN pip3 install selenium webdriver-manager
 ```
-2. Follow the `Install the component` step
+- Follow the `Install the component` step
 
-## For `Home Assistant Operating System`
-
-1. Click on your username on UI
-2. Turn on `Advanced Mode` on the right
-3. Go to `Add-ons` -> `Add-on store`
-4. Install `SSH & Web Terminal` (the community version)
-5. On `Info` tab of `SSH & Web Terminal`, turn off `Protection mode`
-6. On `Configuration` tab, enter a `password`, change `sftp` to `true`
-7. On `Configuration` tab, turn on `share_sessions`. `Save`
-8. On `Info` tab click `START`
-9. SSH to `hassio@IP` with the configured password
+## For `Home Assistant Operating System (with HACS)`
+1. Setup `HACS` https://hacs.xyz/docs/setup/prerequisites
+2. In `Home Assistant`, click `HACS` on the menu on the left
+3. Select `integrations`
+4. Click the menu button in the top right hand corner
+5. Choose `custom repositories`
+6. Enter `https://github.com/thematrixdev/home-assistant-clp` and choose `Integration`, click `ADD`
+7. Find and click on `CLP` in the `custom repositories` list
+8. Click the `DOWNLOAD` button in the bottom right hand corner
+9. SSH to `Home Assistant`
 10. Run : `docker exec -ti homeassistant apk add icu-data-full firefox`
-11. Follow the `Install the component` step
+11. Restart `Home Assistant`
+12. Follow the `Install the component` step
 
 ## Install the component
 1. Download `custom_components/clp` here
