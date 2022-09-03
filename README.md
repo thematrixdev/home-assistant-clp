@@ -6,12 +6,12 @@
 - CLP website credentials
 
 ## For `Home Assistant Container`
-- Use an image like this:
-```
-FROM ghcr.io/home-assistant/home-assistant:stable
-RUN apk add icu-data-full firefox
-```
-- Follow the `Install the component` step
+1. Download `custom_components/clp` here
+2. SSH or SFTP into your Home-Assistant server
+3. Locate `configuration.yaml`
+4. Locate `custom_components` in the same directory. Create it if not exist 
+5. Put the downloaded `clp` into `custom_components`
+6. Restart Home-Assistant
 
 ## For `Home Assistant Operating System (with HACS)`
 1. Setup `HACS` https://hacs.xyz/docs/setup/prerequisites
@@ -22,18 +22,7 @@ RUN apk add icu-data-full firefox
 6. Enter `https://github.com/thematrixdev/home-assistant-clp` and choose `Integration`, click `ADD`
 7. Find and click on `CLP` in the `custom repositories` list
 8. Click the `DOWNLOAD` button in the bottom right hand corner
-9. SSH to `Home Assistant`
-10. Run : `docker exec -ti homeassistant apk add icu-data-full firefox`
-11. Restart `Home Assistant`
-12. Follow the `Install the component` step
-
-## Install the component
-1. Download `custom_components/clp` here
-2. SSH or SFTP into your Home-Assistant server
-3. Locate `configuration.yaml`
-4. Locate `custom_components` in the same directory. Create it if not exist 
-5. Put the downloaded `clp` into `custom_components`
-6. Restart Home-Assistant
+9. Restart Home-Assistant
 
 ## Configure in Home-Assistant
 1. Add these in `configuration.yaml`
@@ -51,20 +40,9 @@ sensor:
 ## Common problem
 - For slower hardware device, `TIMEOUT` may happen. Increase `timeout` in `configuration.yaml`
 
-## Debug
-1. SSH and run:
-```
-docker logs -f homeassistant
-```
-2. Locate `[WDM]` and observe if there is any error message afterwards:
-```
-[WDM] - Downloading: 16.2kB [00:00, 8.22MB/s]
-```
-3. In Home Assistant find `sensor.clp`
-
 ## Development environment
 - Ubuntu 22.04
 
 ## Testing environment
-- Home Assistant Container 2022.7.5 on x64
-- Home Assistant Operating System 2022.8.7 on VirtualBox
+- Home Assistant Container 2022.7.5
+- Home Assistant Operating System 2022.8.7

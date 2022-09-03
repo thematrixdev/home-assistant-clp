@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import datetime
-import json
 
+import aiohttp
+import async_timeout
 import homeassistant.helpers.config_validation as cv
 import pytz
 import voluptuous as vol
+from bs4 import BeautifulSoup
 from homeassistant.components.lock import PLATFORM_SCHEMA
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -23,15 +25,10 @@ from homeassistant.const import (
     ENERGY_KILO_WATT_HOUR,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.firefox.service import Service
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.firefox import GeckoDriverManager
+from homeassistant.util import Throttle
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_NAME): cv.string,
@@ -40,12 +37,17 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_TIMEOUT, default=30): cv.positive_int,
 })
 
+MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=600)
+TIMEOUT = 10
+
+
 async def async_setup_platform(
     hass: HomeAssistant,
     config: ConfigType,
     async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
+    session = aiohttp_client.async_get_clientsession(hass)
     name = config.get(CONF_NAME)
     username = config.get(CONF_USERNAME)
     password = config.get(CONF_PASSWORD)
@@ -54,6 +56,7 @@ async def async_setup_platform(
     async_add_entities(
         [
             CLPSensor(
+                session=session,
                 name=name,
                 username=username,
                 password=password,
@@ -75,11 +78,13 @@ async def async_setup_entry(
 class CLPSensor(SensorEntity):
     def __init__(
         self,
+        session: aiohttp.ClientSession,
         name: str,
         username: str,
         password: str,
         timeout: int,
     ) -> None:
+        self._session = session
         self._name = name
         self._username = username
         self._password = password
@@ -93,108 +98,72 @@ class CLPSensor(SensorEntity):
     def name(self) -> str | None:
         return self._name
 
-    def update(self) -> None:
-        options = Options()
-        options.headless = True
+    @Throttle(MIN_TIME_BETWEEN_UPDATES)
+    async def async_update(self) -> None:
+        try:
+            async with async_timeout.timeout(TIMEOUT):
+                response = await self._session.request(
+                    "GET",
+                    "https://services.clp.com.hk/zh/login/index.aspx",
+                    headers={
+                        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.101 Safari/537.36",
+                    },
+                )
+                response.raise_for_status()
+                html = await response.text()
+                soup = BeautifulSoup(html, 'html.parser')
+                csrf_token = soup.select('meta[name="csrf-token"]')[0].attrs['content']
 
-        driver = webdriver.Firefox(
-            service=Service(GeckoDriverManager().install()),
-            options=options,
-        )
-        driver.get("https://services.clp.com.hk/zh/login/index.aspx")
+            async with async_timeout.timeout(TIMEOUT):
+                response = await self._session.request(
+                    "POST",
+                    "https://services.clp.com.hk/Service/ServiceLogin.ashx",
+                    headers={
+                        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "devicetype": "web",
+                        "html-lang": "zh",
+                        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.101 Safari/537.36",
+                        "x-csrftoken": csrf_token,
+                        "x-requested-with": "XMLHttpRequest",
+                    },
+                    data={
+                        "username": self._username,
+                        "password": self._password,
+                        "rememberMe": "true",
+                        "loginPurpose": "",
+                        "magentoToken": "",
+                        "domeoId": "",
+                        "domeoPointsBalance": "",
+                        "domeoPointsNeeded": "",
+                    },
+                )
+                response.raise_for_status()
 
-        assert "登入賬戶 - 中電" in driver.title
+            today = datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).strftime("%Y%m%d")
+            tomorrow = (datetime.datetime.today() + datetime.timedelta(days=1)).strftime("%Y%m%d")
 
-        WebDriverWait(driver, self._timeout, 1).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.login-rt-loginbtn'))
-        )
-
-        btn_login = driver.find_element(
-            by=By.CSS_SELECTOR,
-            value='button.login-rt-loginbtn',
-        )
-        btn_login.click()
-
-        WebDriverWait(driver, self._timeout, 1).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.login-password'))
-        )
-
-        btn_password = driver.find_element(
-            by=By.CSS_SELECTOR,
-            value='button.login-password',
-        )
-        btn_password.click()
-
-        WebDriverWait(driver, self._timeout, 1).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, '#personal_user_nametext'))
-        )
-
-        input_username = driver.find_element(
-            by=By.CSS_SELECTOR,
-            value='#personal_user_nametext',
-        )
-        input_username.send_keys(self._username)
-
-        WebDriverWait(driver, self._timeout, 1).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, '#personal_passwordpassword'))
-        )
-
-        input_password = driver.find_element(
-            by=By.CSS_SELECTOR,
-            value='#personal_passwordpassword',
-        )
-        input_password.send_keys(self._password)
-
-        WebDriverWait(driver, self._timeout, 1).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'label[for="passwordLogin_remembercheckbox"]'))
-        )
-
-        input_remember = driver.find_element(
-            by=By.CSS_SELECTOR,
-            value='label[for="passwordLogin_remembercheckbox"]',
-        )
-        input_remember.click()
-
-        WebDriverWait(driver, self._timeout, 1).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, '#passwordLogin button[type="submit"]'))
-        )
-
-        btn_signin = driver.find_element(
-            by=By.CSS_SELECTOR,
-            value='#passwordLogin button[type="submit"]',
-        )
-        btn_signin.click()
-
-        WebDriverWait(driver, self._timeout, 1).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'meta[name="csrf-token"]'))
-        )
-        meta_csrf_token = driver.find_element(
-            by=By.CSS_SELECTOR,
-            value='meta[name="csrf-token"]',
-        )
-        csrf_token = meta_csrf_token.get_attribute("content")
-
-        today = datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).strftime("%Y%m%d")
-        tomorrow = (datetime.datetime.today() + datetime.timedelta(days=1)).strftime("%Y%m%d")
-
-        jsrequest = '''var xhr = new XMLHttpRequest();
-            xhr.open('POST', 'https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx', false);
-            xhr.setRequestHeader('accept', 'application/json, text/javascript, */*; q=0.01');
-            xhr.setRequestHeader('content-type', 'application/x-www-form-urlencoded; charset=UTF-8');
-            xhr.setRequestHeader('devicetype', 'web');
-            xhr.setRequestHeader('html-lang', 'zh');
-            xhr.setRequestHeader('x-csrftoken', '{meta_csrf_token}');
-            xhr.setRequestHeader('x-requested-with', 'XMLHttpRequest');
-            xhr.send('contractAccount=&start={today}&end={tomorrow}&mode=H&type=kWh');
-            return xhr.response;'''
-        response = driver.execute_script(jsrequest.format(
-            meta_csrf_token=csrf_token,
-            today=today,
-            tomorrow=tomorrow,
-        ))
-
-        data = json.loads(response)
-
-        self._attr_native_value = data['results'][-1]['KWH_TOTAL']
-
-        driver.close()
+            async with async_timeout.timeout(TIMEOUT):
+                response = await self._session.request(
+                    "POST",
+                    "https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx",
+                    headers={
+                        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "devicetype": "web",
+                        "html-lang": "zh",
+                        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.101 Safari/537.36",
+                        "x-csrftoken": csrf_token,
+                        "x-requested-with": "XMLHttpRequest",
+                    },
+                    data={
+                        "contractAccount": "",
+                        "start": today,
+                        "end": tomorrow,
+                        "mode": "H",
+                        "type": "kWh",
+                    },
+                )
+                response.raise_for_status()
+                data = await response.json()
+                self._attr_native_value = data['results'][-1]['KWH_TOTAL']
+        except Exception as e:
+            pass
