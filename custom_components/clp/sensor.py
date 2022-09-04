@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import logging
 
 import aiohttp
 import async_timeout
@@ -30,6 +31,8 @@ from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
+
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_NAME): cv.string,
@@ -123,6 +126,8 @@ class CLPSensor(SensorEntity):
     async def async_update(self) -> None:
         try:
             print("CLP BEGIN", flush=True)
+            _LOGGER.debug("CLP BEGIN")
+
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "GET",
@@ -137,6 +142,7 @@ class CLPSensor(SensorEntity):
                 csrf_token = soup.select('meta[name="csrf-token"]')[0].attrs['content']
 
             print("CLP LOGIN", flush=True)
+            _LOGGER.debug("CLP LOGIN")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
@@ -168,6 +174,7 @@ class CLPSensor(SensorEntity):
             next_month = (datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).replace(day=1) + relativedelta.relativedelta(months=1)).strftime("%Y%m%d")
 
             print("CLP ACCOUNT", flush=True)
+            _LOGGER.debug("CLP ACCOUNT")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
@@ -189,6 +196,7 @@ class CLPSensor(SensorEntity):
                 data = await response.json()
 
                 print(data, flush=True)
+                _LOGGER.debug(data)
 
                 self._account = {
                     'number': data['caNo'],
@@ -196,6 +204,7 @@ class CLPSensor(SensorEntity):
                 }
 
             print("CLP BILL", flush=True)
+            _LOGGER.debug("CLP BILL")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
@@ -220,6 +229,7 @@ class CLPSensor(SensorEntity):
                 data = await response.json()
 
                 print(data, flush=True)
+                _LOGGER.debug(data)
 
                 latest_bill_usage = data['results'][0]['TOT_KWH']
 
@@ -239,6 +249,7 @@ class CLPSensor(SensorEntity):
                     })
 
             print("CLP ESTIMATION", flush=True)
+            _LOGGER.debug("CLP ESTIMATION")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
@@ -261,19 +272,38 @@ class CLPSensor(SensorEntity):
                 data = await response.json()
 
                 print(data, flush=True)
+                _LOGGER.debug(data)
+
+                consumed_start = None
+                consumed_end = None
+                estimation_start = None
+                estimation_end = None
+
+                if data['currentStartDate']:
+                    consumed_start = datetime.datetime.strptime(data['currentStartDate'], '%Y%m%d%H%M%S')
+
+                if data['currentEndDate']:
+                    consumed_end = datetime.datetime.strptime(data['currentEndDate'], '%Y%m%d%H%M%S')
+
+                if data['projectedStartDate']:
+                    estimation_start = datetime.datetime.strptime(data['projectedStartDate'], '%Y%m%d%H%M%S')
+
+                if data['projectedEndDate']:
+                    estimation_end = datetime.datetime.strptime(data['projectedEndDate'], '%Y%m%d%H%M%S')
 
                 self._unbilled = {
                     "consumed_kwh": float(data['currentConsumption']),
                     "consumed_cost": float(data['currentCost']),
-                    "consumed_start": datetime.datetime.strptime(data['currentStartDate'], '%Y%m%d%H%M%S'),
-                    "consumed_end": datetime.datetime.strptime(data['currentEndDate'], '%Y%m%d%H%M%S'),
-                    "estimation_start": datetime.datetime.strptime(data['projectedStartDate'], '%Y%m%d%H%M%S'),
-                    "estimation_end": datetime.datetime.strptime(data['projectedEndDate'], '%Y%m%d%H%M%S'),
+                    "consumed_start": consumed_start,
+                    "consumed_end": consumed_end,
+                    "estimation_start": estimation_start,
+                    "estimation_end": estimation_end,
                     "estimated_kwh": float(data['projectedConsumption']),
                     "estimated_cost": float(data['projectedCost']),
                 }
 
             print("CLP ECO-POINTS", flush=True)
+            _LOGGER.debug("CLP ECO-POINTS")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
@@ -294,13 +324,19 @@ class CLPSensor(SensorEntity):
                 data = await response.json()
 
                 print(data, flush=True)
+                _LOGGER.debug(data)
+
+                expiry = None
+                if data['ExpiryDatetime']:
+                    expiry = datetime.datetime.strptime(data['ExpiryDatetime'], '%Y%m%d%H%M%S')
 
                 self._eco_points = {
                     "balance": data['EP_Balance'],
-                    "expiry": datetime.datetime.strptime(data['ExpiryDatetime'], '%Y%m%d%H%M%S'),
+                    "expiry": expiry,
                 }
 
             print("CLP DAILY", flush=True)
+            _LOGGER.debug("CLP DAILY")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
@@ -325,17 +361,23 @@ class CLPSensor(SensorEntity):
                 data = await response.json()
 
                 print(data, flush=True)
+                _LOGGER.debug(data)
 
                 latest_daily_usage = data['results'][-1]['KWH_TOTAL']
 
                 self._daily = []
                 for row in data['results']:
+                    start = None
+                    if row['START_DT']:
+                        start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+
                     self._daily.append({
-                        'start': datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S'),
+                        'start': start,
                         'kwh': row['KWH_TOTAL'],
                     })
 
             print("CLP HOURLY", flush=True)
+            _LOGGER.debug("CLP HOURLY")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
@@ -360,13 +402,18 @@ class CLPSensor(SensorEntity):
                 data = await response.json()
 
                 print(data, flush=True)
+                _LOGGER.debug(data)
 
                 latest_hourly_usage = data['results'][-1]['KWH_TOTAL']
 
                 self._hourly = []
                 for row in data['results']:
+                    start = None
+                    if row['START_DT']:
+                        start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+
                     self._hourly.append({
-                        'start': datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S'),
+                        'start': start,
                         'kwh': row['KWH_TOTAL'],
                     })
 
@@ -377,8 +424,7 @@ class CLPSensor(SensorEntity):
             elif latest_bill_usage:
                 self._attr_native_value = latest_bill_usage
 
-            self.async_write_ha_state()
-
             print("CLP END", flush=True)
+            _LOGGER.debug("CLP END")
         except Exception as e:
             print(e, flush=True)
