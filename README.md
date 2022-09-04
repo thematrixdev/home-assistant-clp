@@ -38,7 +38,24 @@ sensor:
 2. Restart Home-Assistant
 
 ## Common problem
+- Single entity only. More than one `clp` entry will cause problems
 - For slower hardware device, `TIMEOUT` may happen. Increase `timeout` in `configuration.yaml`
+
+## Debug
+- SSH
+- `docker logs -f homeassistant`
+- Look for `CLP` wordings
+
+## Use SSH on Home Assistant Operating System
+1. Click on your username on UI
+2. Turn on `Advanced Mode` on the right
+3. Go to `Add-ons` -> `Add-on store`
+4. Install `SSH & Web Terminal` (the community version)
+5. On `Info` tab of `SSH & Web Terminal`, turn off `Protection mode`
+6. On `Configuration` tab, enter a `password`, change `sftp` to `true`
+7. On `Configuration` tab, turn on `share_sessions`. `Save`
+8. On `Info` tab click `START`
+9. SSH to `hassio@IP` with the configured password
 
 ## Development environment
 - Ubuntu 22.04
