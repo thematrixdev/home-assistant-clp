@@ -364,18 +364,19 @@ class CLPSensor(SensorEntity):
                 print(data, flush=True)
                 _LOGGER.debug(data)
 
-                latest_daily_usage = data['results'][-1]['KWH_TOTAL']
+                if data['results']:
+                    latest_daily_usage = data['results'][-1]['KWH_TOTAL']
 
-                self._daily = []
-                for row in data['results']:
-                    start = None
-                    if row['START_DT']:
-                        start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+                    self._daily = []
+                    for row in data['results']:
+                        start = None
+                        if row['START_DT']:
+                            start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
 
-                    self._daily.append({
-                        'start': start,
-                        'kwh': row['KWH_TOTAL'],
-                    })
+                        self._daily.append({
+                            'start': start,
+                            'kwh': row['KWH_TOTAL'],
+                        })
 
             print("CLP HOURLY", flush=True)
             _LOGGER.debug("CLP HOURLY")
@@ -405,18 +406,19 @@ class CLPSensor(SensorEntity):
                 print(data, flush=True)
                 _LOGGER.debug(data)
 
-                latest_hourly_usage = data['results'][-1]['KWH_TOTAL']
+                if data['results']:
+                    latest_hourly_usage = data['results'][-1]['KWH_TOTAL']
 
-                self._hourly = []
-                for row in data['results']:
-                    start = None
-                    if row['START_DT']:
-                        start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+                    self._hourly = []
+                    for row in data['results']:
+                        start = None
+                        if row['START_DT']:
+                            start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
 
-                    self._hourly.append({
-                        'start': start,
-                        'kwh': row['KWH_TOTAL'],
-                    })
+                        self._hourly.append({
+                            'start': start,
+                            'kwh': row['KWH_TOTAL'],
+                        })
 
             if latest_hourly_usage:
                 self._attr_native_value = latest_hourly_usage
