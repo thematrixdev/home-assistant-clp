@@ -231,22 +231,23 @@ class CLPSensor(SensorEntity):
                 print(data, flush=True)
                 _LOGGER.debug(data)
 
-                latest_bill_usage = data['results'][0]['TOT_KWH']
+                if data['results']:
+                    latest_bill_usage = data['results'][0]['TOT_KWH']
 
-                self._billed = {
-                    "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S'),
-                    "kwh": data['results'][0]['TOT_KWH'],
-                    "cost": data['results'][0]['TOT_COST'],
-                }
+                    self._billed = {
+                        "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S'),
+                        "kwh": data['results'][0]['TOT_KWH'],
+                        "cost": data['results'][0]['TOT_COST'],
+                    }
 
-                self._bills = []
-                for row in data['results']:
-                    self._bills.append({
-                        'start': datetime.datetime.strptime(row['BEGABRPE'], '%Y%m%d'),
-                        'end': datetime.datetime.strptime(row['ENDABRPE'], '%Y%m%d'),
-                        'kwh': row['TOT_KWH'],
-                        'cost': row['TOT_COST'],
-                    })
+                    self._bills = []
+                    for row in data['results']:
+                        self._bills.append({
+                            'start': datetime.datetime.strptime(row['BEGABRPE'], '%Y%m%d'),
+                            'end': datetime.datetime.strptime(row['ENDABRPE'], '%Y%m%d'),
+                            'kwh': row['TOT_KWH'],
+                            'cost': row['TOT_COST'],
+                        })
 
             print("CLP ESTIMATION", flush=True)
             _LOGGER.debug("CLP ESTIMATION")
