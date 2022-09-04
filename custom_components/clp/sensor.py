@@ -8,6 +8,7 @@ import homeassistant.helpers.config_validation as cv
 import pytz
 import voluptuous as vol
 from bs4 import BeautifulSoup
+from dateutil import relativedelta
 from homeassistant.components.lock import PLATFORM_SCHEMA
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -38,7 +39,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 })
 
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=600)
-TIMEOUT = 10
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.101 Safari/537.36"
 
 async def async_setup_platform(
@@ -102,7 +102,7 @@ class CLPSensor(SensorEntity):
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self) -> None:
         try:
-            async with async_timeout.timeout(TIMEOUT):
+            async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "GET",
                     "https://services.clp.com.hk/zh/login/index.aspx",
@@ -115,7 +115,7 @@ class CLPSensor(SensorEntity):
                 soup = BeautifulSoup(html, 'html.parser')
                 csrf_token = soup.select('meta[name="csrf-token"]')[0].attrs['content']
 
-            async with async_timeout.timeout(TIMEOUT):
+            async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
                     "https://services.clp.com.hk/Service/ServiceLogin.ashx",
@@ -142,8 +142,10 @@ class CLPSensor(SensorEntity):
 
             today = datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).strftime("%Y%m%d")
             tomorrow = (datetime.datetime.today() + datetime.timedelta(days=1)).strftime("%Y%m%d")
+            this_month = datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).replace(day=1).strftime("%Y%m%d")
+            next_month = (datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).replace(day=1) + relativedelta.relativedelta(months=1)).strftime("%Y%m%d")
 
-            async with async_timeout.timeout(TIMEOUT):
+            async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
                     "https://services.clp.com.hk/Service/ServiceGetAccBaseInfoWithBillV2.ashx",
@@ -167,7 +169,7 @@ class CLPSensor(SensorEntity):
                     'messages': data['alertMsgData'],
                 }
 
-            async with async_timeout.timeout(TIMEOUT):
+            async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
                     "https://services.clp.com.hk/Service/ServiceGetBillConsumptionHistory.ashx",
@@ -189,13 +191,24 @@ class CLPSensor(SensorEntity):
                 )
                 response.raise_for_status()
                 data = await response.json()
+                latest_bill_usage = data['results'][0]['TOT_KWH']
+
                 self._attr_extra_state_attributes['billed'] = {
                     "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S'),
                     "kwh": data['results'][0]['TOT_KWH'],
                     "cost": data['results'][0]['TOT_COST'],
                 }
 
-            async with async_timeout.timeout(TIMEOUT):
+                self._attr_extra_state_attributes['bills'] = []
+                for row in data['results']:
+                    self._attr_extra_state_attributes['bills'].append({
+                        'start': datetime.datetime.strptime(row['BEGABRPE'], '%Y%m%d'),
+                        'end': datetime.datetime.strptime(row['ENDABRPE'], '%Y%m%d'),
+                        'kwh': row['TOT_KWH'],
+                        'cost': row['TOT_COST'],
+                    })
+
+            async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
                     "https://services.clp.com.hk/Service/ServiceGetProjectedConsumption.ashx",
@@ -226,7 +239,7 @@ class CLPSensor(SensorEntity):
                     "estimated_cost": float(data['projectedCost']),
                 }
 
-            async with async_timeout.timeout(TIMEOUT):
+            async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
                     "https://services.clp.com.hk/Service/ServiceEcoPoints.ashx",
@@ -249,7 +262,38 @@ class CLPSensor(SensorEntity):
                     "expiry": datetime.datetime.strptime(data['ExpiryDatetime'], '%Y%m%d%H%M%S'),
                 }
 
-            async with async_timeout.timeout(TIMEOUT):
+            async with async_timeout.timeout(self._timeout):
+                response = await self._session.request(
+                    "POST",
+                    "https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx",
+                    headers={
+                        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "devicetype": "web",
+                        "html-lang": "zh",
+                        "user-agent": USER_AGENT,
+                        "x-csrftoken": csrf_token,
+                        "x-requested-with": "XMLHttpRequest",
+                    },
+                    data={
+                        "contractAccount": "",
+                        "start": this_month,
+                        "end": next_month,
+                        "mode": "D",
+                        "type": "kWh",
+                    },
+                )
+                response.raise_for_status()
+                data = await response.json()
+                latest_daily_usage = data['results'][-1]['KWH_TOTAL']
+
+                self._attr_extra_state_attributes['daily'] = []
+                for row in data['results']:
+                    self._attr_extra_state_attributes['daily'].append({
+                        'start': datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S'),
+                        'kwh': row['KWH_TOTAL'],
+                    })
+
+            async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
                     "https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx",
@@ -271,7 +315,7 @@ class CLPSensor(SensorEntity):
                 )
                 response.raise_for_status()
                 data = await response.json()
-                self._attr_native_value = data['results'][-1]['KWH_TOTAL']
+                latest_hourly_usage = data['results'][-1]['KWH_TOTAL']
 
                 self._attr_extra_state_attributes['hourly'] = []
                 for row in data['results']:
@@ -279,6 +323,14 @@ class CLPSensor(SensorEntity):
                         'start': datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S'),
                         'kwh': row['KWH_TOTAL'],
                     })
-                
+
+                if latest_hourly_usage:
+                    self._attr_native_value = latest_hourly_usage
+                elif latest_daily_usage:
+                    self._attr_native_value = latest_daily_usage
+                elif latest_bill_usage:
+                    self._attr_native_value = latest_bill_usage
+                else:
+                    self._attr_native_value = None
         except Exception as e:
             print(e, flush=True)
