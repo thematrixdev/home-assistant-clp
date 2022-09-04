@@ -232,7 +232,7 @@ class CLPSensor(SensorEntity):
                 _LOGGER.debug(data)
 
                 if data['results']:
-                    latest_bill_usage = data['results'][0]['TOT_KWH']
+                    self._attr_native_value = data['results'][0]['TOT_KWH']
 
                     self._billed = {
                         "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S'),
@@ -365,7 +365,7 @@ class CLPSensor(SensorEntity):
                 _LOGGER.debug(data)
 
                 if data['results']:
-                    latest_daily_usage = data['results'][-1]['KWH_TOTAL']
+                    self._attr_native_value = data['results'][-1]['KWH_TOTAL']
 
                     self._daily = []
                     for row in data['results']:
@@ -407,7 +407,7 @@ class CLPSensor(SensorEntity):
                 _LOGGER.debug(data)
 
                 if data['results']:
-                    latest_hourly_usage = data['results'][-1]['KWH_TOTAL']
+                    self._attr_native_value = data['results'][-1]['KWH_TOTAL']
 
                     self._hourly = []
                     for row in data['results']:
@@ -419,13 +419,6 @@ class CLPSensor(SensorEntity):
                             'start': start,
                             'kwh': row['KWH_TOTAL'],
                         })
-
-            if latest_hourly_usage:
-                self._attr_native_value = latest_hourly_usage
-            elif latest_daily_usage:
-                self._attr_native_value = latest_daily_usage
-            elif latest_bill_usage:
-                self._attr_native_value = latest_bill_usage
 
             print("CLP END", flush=True)
             _LOGGER.debug("CLP END")
