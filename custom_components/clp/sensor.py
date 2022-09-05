@@ -109,6 +109,10 @@ class CLPSensor(SensorEntity):
         self._hourly = None
 
     @property
+    def state_class(self) -> SensorStateClass | str | None:
+        return SensorStateClass.TOTAL
+
+    @property
     def name(self) -> str | None:
         return self._name
 
@@ -237,6 +241,7 @@ class CLPSensor(SensorEntity):
                 if data['results']:
                     self._state_data_type = 'BIMONTHLY'
                     self._attr_native_value = data['results'][0]['TOT_KWH']
+                    self._attr_last_reset = datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S')
 
                     self._billed = {
                         "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S'),
@@ -371,6 +376,7 @@ class CLPSensor(SensorEntity):
                 if data['results']:
                     self._state_data_type = 'DAILY'
                     self._attr_native_value = data['results'][-1]['KWH_TOTAL']
+                    self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
 
                     self._daily = []
                     for row in data['results']:
@@ -422,6 +428,7 @@ class CLPSensor(SensorEntity):
                     if data['results']:
                         self._state_data_type = 'HOURLY'
                         self._attr_native_value = data['results'][-1]['KWH_TOTAL']
+                        self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
 
                         self._hourly = []
                         for row in data['results']:
