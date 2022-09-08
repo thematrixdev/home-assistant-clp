@@ -33,8 +33,13 @@ sensor:
     username: '' # CLP web site username
     password: '' # CLP web site password
     timeout: 30 # connection timeout in second
-    scan_interval: 3600 # how often to refresh data, in second
+    type: '' # type of data to be shown in state
 ```
+- Possible values for `type`:
+  - BIMONTHLY
+  - DAILY
+  - HOURLY
+  - (EMPTY: best accurate value)
 2. Restart Home-Assistant
 
 ## Common problem

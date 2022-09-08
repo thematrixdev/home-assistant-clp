@@ -22,6 +22,7 @@ from homeassistant.const import (
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_TIMEOUT,
+    CONF_TYPE,
 )
 from homeassistant.const import (
     ENERGY_KILO_WATT_HOUR,
@@ -32,6 +33,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
 
+DOMAIN = "CLP"
+
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -39,6 +42,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_USERNAME): cv.string,
     vol.Required(CONF_PASSWORD): cv.string,
     vol.Optional(CONF_TIMEOUT, default=30): cv.positive_int,
+    vol.Optional(CONF_TYPE, default=''): cv.string,
 })
 
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=600)
@@ -55,6 +59,7 @@ async def async_setup_platform(
     username = config.get(CONF_USERNAME)
     password = config.get(CONF_PASSWORD)
     timeout = config.get(CONF_TIMEOUT)
+    type = config.get(CONF_TYPE)
 
     async_add_entities(
         [
@@ -64,6 +69,7 @@ async def async_setup_platform(
                 username=username,
                 password=password,
                 timeout=timeout,
+                type=type,
             ),
         ],
         update_before_add=True,
@@ -86,12 +92,14 @@ class CLPSensor(SensorEntity):
         username: str,
         password: str,
         timeout: int,
+        type: str,
     ) -> None:
         self._session = session
         self._name = name
         self._username = username
         self._password = password
         self._timeout = timeout
+        self._type = type
 
         self._attr_device_class = SensorDeviceClass.ENERGY
         self._attr_native_value = None
@@ -239,9 +247,10 @@ class CLPSensor(SensorEntity):
                 _LOGGER.debug(data)
 
                 if data['results']:
-                    self._state_data_type = 'BIMONTHLY'
-                    self._attr_native_value = data['results'][0]['TOT_KWH']
-                    self._attr_last_reset = datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S')
+                    if self._type == '' or self._type.upper() == 'BIMONTHLY':
+                        self._state_data_type = 'BIMONTHLY'
+                        self._attr_native_value = data['results'][0]['TOT_KWH']
+                        self._attr_last_reset = datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S')
 
                     self._billed = {
                         "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S'),
@@ -374,9 +383,10 @@ class CLPSensor(SensorEntity):
                 _LOGGER.debug(data)
 
                 if data['results']:
-                    self._state_data_type = 'DAILY'
-                    self._attr_native_value = data['results'][-1]['KWH_TOTAL']
-                    self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
+                    if self._type == '' or self._type.upper() == 'DAILY':
+                        self._state_data_type = 'DAILY'
+                        self._attr_native_value = data['results'][-1]['KWH_TOTAL']
+                        self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
 
                     self._daily = []
                     for row in data['results']:
@@ -426,9 +436,10 @@ class CLPSensor(SensorEntity):
                     _LOGGER.debug(data)
 
                     if data['results']:
-                        self._state_data_type = 'HOURLY'
-                        self._attr_native_value = data['results'][-1]['KWH_TOTAL']
-                        self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
+                        if self._type == '' or self._type.upper() == 'HOURLY':
+                            self._state_data_type = 'HOURLY'
+                            self._attr_native_value = data['results'][-1]['KWH_TOTAL']
+                            self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
 
                         self._hourly = []
                         for row in data['results']:
