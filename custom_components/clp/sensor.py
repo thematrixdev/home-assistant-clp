@@ -140,7 +140,6 @@ class CLPSensor(SensorEntity):
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self) -> None:
         try:
-            print("CLP BEGIN", flush=True)
             _LOGGER.debug("CLP BEGIN")
 
             async with async_timeout.timeout(self._timeout):
@@ -156,7 +155,6 @@ class CLPSensor(SensorEntity):
                 soup = BeautifulSoup(html, 'html.parser')
                 csrf_token = soup.select('meta[name="csrf-token"]')[0].attrs['content']
 
-            print("CLP LOGIN", flush=True)
             _LOGGER.debug("CLP LOGIN")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
@@ -188,7 +186,6 @@ class CLPSensor(SensorEntity):
             this_month = datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).replace(day=1).strftime("%Y%m%d")
             next_month = (datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).replace(day=1) + relativedelta.relativedelta(months=1)).strftime("%Y%m%d")
 
-            print("CLP ACCOUNT", flush=True)
             _LOGGER.debug("CLP ACCOUNT")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
@@ -210,7 +207,6 @@ class CLPSensor(SensorEntity):
                 response.raise_for_status()
                 data = await response.json()
 
-                print(data, flush=True)
                 _LOGGER.debug(data)
 
                 self._account = {
@@ -218,7 +214,6 @@ class CLPSensor(SensorEntity):
                     'messages': data['alertMsgData'],
                 }
 
-            print("CLP BILL", flush=True)
             _LOGGER.debug("CLP BILL")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
@@ -243,7 +238,6 @@ class CLPSensor(SensorEntity):
                 response.raise_for_status()
                 data = await response.json()
 
-                print(data, flush=True)
                 _LOGGER.debug(data)
 
                 if data['results']:
@@ -267,7 +261,6 @@ class CLPSensor(SensorEntity):
                             'cost': row['TOT_COST'],
                         })
 
-            print("CLP ESTIMATION", flush=True)
             _LOGGER.debug("CLP ESTIMATION")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
@@ -290,7 +283,6 @@ class CLPSensor(SensorEntity):
                 response.raise_for_status()
                 data = await response.json()
 
-                print(data, flush=True)
                 _LOGGER.debug(data)
 
                 consumed_start = None
@@ -321,7 +313,6 @@ class CLPSensor(SensorEntity):
                     "estimated_cost": float(data['projectedCost']),
                 }
 
-            print("CLP ECO-POINTS", flush=True)
             _LOGGER.debug("CLP ECO-POINTS")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
@@ -342,7 +333,6 @@ class CLPSensor(SensorEntity):
                 response.raise_for_status()
                 data = await response.json()
 
-                print(data, flush=True)
                 _LOGGER.debug(data)
 
                 expiry = None
@@ -354,7 +344,6 @@ class CLPSensor(SensorEntity):
                     "expiry": expiry,
                 }
 
-            print("CLP DAILY", flush=True)
             _LOGGER.debug("CLP DAILY")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
@@ -379,7 +368,6 @@ class CLPSensor(SensorEntity):
                 response.raise_for_status()
                 data = await response.json()
 
-                print(data, flush=True)
                 _LOGGER.debug(data)
 
                 if data['results']:
@@ -399,7 +387,6 @@ class CLPSensor(SensorEntity):
                             'kwh': row['KWH_TOTAL'],
                         })
 
-            print("CLP HOURLY", flush=True)
             _LOGGER.debug("CLP HOURLY")
             async with async_timeout.timeout(self._timeout):
                 for i in range(2):
@@ -432,7 +419,6 @@ class CLPSensor(SensorEntity):
                     response.raise_for_status()
                     data = await response.json()
 
-                    print(data, flush=True)
                     _LOGGER.debug(data)
 
                     if data['results']:
@@ -454,7 +440,6 @@ class CLPSensor(SensorEntity):
 
                         break
 
-            print("CLP END", flush=True)
             _LOGGER.debug("CLP END")
         except Exception as e:
             print(e, flush=True)
