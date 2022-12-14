@@ -47,6 +47,7 @@ sensor:
 - For slower hardware device, `TIMEOUT` may happen. Increase `timeout` in `configuration.yaml`
 
 ## Debug
+- Configure `debug` level https://www.home-assistant.io/integrations/logger/
 - SSH
 - `docker logs -f homeassistant`
 - Look for `CLP` wordings
