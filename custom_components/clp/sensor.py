@@ -287,33 +287,41 @@ class CLPSensor(SensorEntity):
 
                 _LOGGER.debug(data)
 
-                consumed_start = None
-                consumed_end = None
-                estimation_start = None
-                estimation_end = None
+                if data['ErrorCode'] != '':
+                    consumed_start = None
+                    consumed_end = None
+                    estimation_start = None
+                    estimation_end = None
 
-                if data['currentStartDate']:
-                    consumed_start = datetime.datetime.strptime(data['currentStartDate'], '%Y%m%d%H%M%S')
+                    if data['currentStartDate']:
+                        consumed_start = datetime.datetime.strptime(data['currentStartDate'], '%Y%m%d%H%M%S')
 
-                if data['currentEndDate']:
-                    consumed_end = datetime.datetime.strptime(data['currentEndDate'], '%Y%m%d%H%M%S')
+                    if data['currentEndDate']:
+                        consumed_end = datetime.datetime.strptime(data['currentEndDate'], '%Y%m%d%H%M%S')
 
-                if data['projectedStartDate']:
-                    estimation_start = datetime.datetime.strptime(data['projectedStartDate'], '%Y%m%d%H%M%S')
+                    if data['projectedStartDate']:
+                        estimation_start = datetime.datetime.strptime(data['projectedStartDate'], '%Y%m%d%H%M%S')
 
-                if data['projectedEndDate']:
-                    estimation_end = datetime.datetime.strptime(data['projectedEndDate'], '%Y%m%d%H%M%S')
+                    if data['projectedEndDate']:
+                        estimation_end = datetime.datetime.strptime(data['projectedEndDate'], '%Y%m%d%H%M%S')
 
-                self._unbilled = {
-                    "consumed_kwh": float(data['currentConsumption']),
-                    "consumed_cost": float(data['currentCost']),
-                    "consumed_start": consumed_start,
-                    "consumed_end": consumed_end,
-                    "estimation_start": estimation_start,
-                    "estimation_end": estimation_end,
-                    "estimated_kwh": float(data['projectedConsumption']),
-                    "estimated_cost": float(data['projectedCost']),
-                }
+                    self._unbilled = {
+                        "consumed_kwh": float(data['currentConsumption']),
+                        "consumed_cost": float(data['currentCost']),
+                        "consumed_start": consumed_start,
+                        "consumed_end": consumed_end,
+                        "estimation_start": estimation_start,
+                        "estimation_end": estimation_end,
+                        "estimated_kwh": float(data['projectedConsumption']),
+                        "estimated_cost": float(data['projectedCost']),
+                    }
+                else:
+                    self._unbilled = {
+                        'error': {
+                            'code': data['ErrorCode'],
+                            'message': data['ErrorMsg'],
+                        }
+                    }
 
             _LOGGER.debug("CLP ECO-POINTS")
             async with async_timeout.timeout(self._timeout):
