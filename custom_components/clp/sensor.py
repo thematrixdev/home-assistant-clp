@@ -209,11 +209,15 @@ class CLPSensor(SensorEntity):
 
                 _LOGGER.debug(data)
 
+                due = ''
+                if data['NextDueDate']:
+                    due = datetime.datetime.strptime(data['NextDueDate'], '%Y%m%d')
+
                 self._account = {
                     'number': data['caNo'],
                     'messages': data['alertMsgData'],
                     'outstanding': data['DunningAmount'],
-                    'due': datetime.datetime.strptime(data['NextDueDate'], '%Y%m%d'),
+                    'due': due,
                 }
 
             _LOGGER.debug("CLP BILL")
