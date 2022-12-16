@@ -211,7 +211,7 @@ class CLPSensor(SensorEntity):
 
                 due = ''
                 if data['NextDueDate']:
-                    due = datetime.datetime.strptime(data['NextDueDate'], '%Y%m%d')
+                    due = datetime.datetime.strptime(data['NextDueDate'], '%Y%m%d%H%M%S')
 
                 self._account = {
                     'number': data['caNo'],
@@ -456,4 +456,4 @@ class CLPSensor(SensorEntity):
 
             _LOGGER.debug("CLP END")
         except Exception as e:
-            print(e, flush=True)
+            _LOGGER.debug(e)
