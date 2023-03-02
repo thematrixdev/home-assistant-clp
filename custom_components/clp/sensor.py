@@ -327,37 +327,6 @@ class CLPSensor(SensorEntity):
                         }
                     }
 
-            _LOGGER.debug("CLP ECO-POINTS")
-            async with async_timeout.timeout(self._timeout):
-                response = await self._session.request(
-                    "POST",
-                    "https://services.clp.com.hk/Service/ServiceEcoPoints.ashx",
-                    headers={
-                        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                        "devicetype": "web",
-                        "html-lang": "zh",
-                        "user-agent": USER_AGENT,
-                        "x-csrftoken": csrf_token,
-                        "x-requested-with": "XMLHttpRequest",
-                    },
-                    data={
-                        "contractAccount": self._account['number'],
-                    },
-                )
-                response.raise_for_status()
-                data = await response.json()
-
-                _LOGGER.debug(data)
-
-                expiry = None
-                if data['ExpiryDatetime']:
-                    expiry = datetime.datetime.strptime(data['ExpiryDatetime'], '%Y%m%d%H%M%S')
-
-                self._eco_points = {
-                    "balance": data['EP_Balance'],
-                    "expiry": expiry,
-                }
-
             _LOGGER.debug("CLP DAILY")
             async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
