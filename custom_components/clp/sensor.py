@@ -291,7 +291,7 @@ class CLPSensor(SensorEntity):
 
                 _LOGGER.debug(data)
 
-                if data['ErrorCode'] != '':
+                if data['ErrorCode'] == '':
                     consumed_start = None
                     consumed_end = None
                     estimation_start = None
