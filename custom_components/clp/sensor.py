@@ -4,6 +4,7 @@ import datetime
 import logging
 
 import aiohttp
+import asyncio
 import async_timeout
 import homeassistant.helpers.config_validation as cv
 import pytz
@@ -47,6 +48,19 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=600)
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.101 Safari/537.36"
+
+def get_dates(timezone):
+    today = datetime.datetime.now(timezone)
+    tomorrow = datetime.datetime.now(timezone) + datetime.timedelta(days=1)
+    this_month = datetime.datetime.now(timezone).replace(day=1)
+    next_month = (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=1))
+
+    return {
+        "today": today.strftime("%Y%m%d"),
+        "tomorrow": tomorrow.strftime("%Y%m%d"),
+        "this_month": this_month.strftime("%Y%m%d"),
+        "next_month": next_month.strftime("%Y%m%d")
+    }
 
 async def async_setup_platform(
     hass: HomeAssistant,
@@ -116,6 +130,8 @@ class CLPSensor(SensorEntity):
         self._daily = None
         self._hourly = None
 
+        self._timezone = pytz.timezone('Asia/Hong_Kong')
+
     @property
     def state_class(self) -> SensorStateClass | str | None:
         return SensorStateClass.TOTAL
@@ -181,10 +197,12 @@ class CLPSensor(SensorEntity):
                 )
                 response.raise_for_status()
 
-            today = datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).strftime("%Y%m%d")
-            tomorrow = (datetime.datetime.today() + datetime.timedelta(days=1)).strftime("%Y%m%d")
-            this_month = datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).replace(day=1).strftime("%Y%m%d")
-            next_month = (datetime.datetime.now(pytz.timezone('Asia/Hong_Kong')).replace(day=1) + relativedelta.relativedelta(months=1)).strftime("%Y%m%d")
+            loop = asyncio.get_running_loop()
+            dates = await loop.run_in_executor(None, get_dates, self._timezone)
+            today = dates["today"]
+            tomorrow = dates["tomorrow"]
+            this_month = dates["this_month"]
+            next_month = dates["next_month"]
 
             _LOGGER.debug("CLP ACCOUNT")
             async with async_timeout.timeout(self._timeout):
