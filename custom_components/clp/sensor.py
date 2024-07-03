@@ -4,7 +4,6 @@ import datetime
 import logging
 
 import aiohttp
-import asyncio
 import async_timeout
 import homeassistant.helpers.config_validation as cv
 import pytz
@@ -24,9 +23,8 @@ from homeassistant.const import (
     CONF_PASSWORD,
     CONF_TIMEOUT,
     CONF_TYPE,
-)
-from homeassistant.const import (
-    ENERGY_KILO_WATT_HOUR,
+    CONF_BEFORE,
+    UnitOfEnergy,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
@@ -44,6 +42,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_PASSWORD): cv.string,
     vol.Optional(CONF_TIMEOUT, default=30): cv.positive_int,
     vol.Optional(CONF_TYPE, default=''): cv.string,
+    vol.Optional(CONF_BEFORE, default=False): cv.boolean,
 })
 
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=600)
@@ -52,12 +51,14 @@ USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Ge
 def get_dates(timezone):
     today = datetime.datetime.now(timezone)
     tomorrow = datetime.datetime.now(timezone) + datetime.timedelta(days=1)
+    last_month = (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=-1))
     this_month = datetime.datetime.now(timezone).replace(day=1)
     next_month = (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=1))
 
     return {
         "today": today.strftime("%Y%m%d"),
         "tomorrow": tomorrow.strftime("%Y%m%d"),
+        "last_month": last_month.strftime("%Y%m%d"),
         "this_month": this_month.strftime("%Y%m%d"),
         "next_month": next_month.strftime("%Y%m%d")
     }
@@ -74,6 +75,7 @@ async def async_setup_platform(
     password = config.get(CONF_PASSWORD)
     timeout = config.get(CONF_TIMEOUT)
     type = config.get(CONF_TYPE)
+    get_extended_data = config.get(CONF_BEFORE)
 
     async_add_entities(
         [
@@ -84,6 +86,7 @@ async def async_setup_platform(
                 password=password,
                 timeout=timeout,
                 type=type,
+                get_extended_data=get_extended_data,
             ),
         ],
         update_before_add=True,
@@ -99,14 +102,17 @@ async def async_setup_entry(
 
 
 class CLPSensor(SensorEntity):
+    _timezone = pytz.timezone('Asia/Hong_Kong')
+
     def __init__(
-        self,
-        session: aiohttp.ClientSession,
-        name: str,
-        username: str,
-        password: str,
-        timeout: int,
-        type: str,
+            self,
+            session: aiohttp.ClientSession,
+            name: str,
+            username: str,
+            password: str,
+            timeout: int,
+            type: str,
+            get_extended_data: bool,
     ) -> None:
         self._session = session
         self._name = name
@@ -114,10 +120,11 @@ class CLPSensor(SensorEntity):
         self._password = password
         self._timeout = timeout
         self._type = type
+        self._get_extended_data = get_extended_data
 
         self._attr_device_class = SensorDeviceClass.ENERGY
         self._attr_native_value = None
-        self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._attr_state_class = SensorStateClass.TOTAL
 
         self._state_data_type = None
@@ -129,8 +136,6 @@ class CLPSensor(SensorEntity):
         self._unbilled = None
         self._daily = None
         self._hourly = None
-
-        self._timezone = pytz.timezone('Asia/Hong_Kong')
 
     @property
     def state_class(self) -> SensorStateClass | str | None:
@@ -197,10 +202,10 @@ class CLPSensor(SensorEntity):
                 )
                 response.raise_for_status()
 
-            loop = asyncio.get_running_loop()
-            dates = await loop.run_in_executor(None, get_dates, self._timezone)
+            dates = get_dates(self._timezone)
             today = dates["today"]
             tomorrow = dates["tomorrow"]
+            last_month = dates["last_month"]
             this_month = dates["this_month"]
             next_month = dates["next_month"]
 
@@ -360,7 +365,7 @@ class CLPSensor(SensorEntity):
                     },
                     data={
                         "contractAccount": "",
-                        "start": this_month,
+                        "start": last_month if self._get_extended_data else this_month,
                         "end": next_month,
                         "mode": "D",
                         "type": "kWh",

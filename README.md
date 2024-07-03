@@ -26,6 +26,7 @@ sensor:
     password: '' # CLP web site password
     timeout: 30 # connection timeout in second
     type: '' # type of data to be shown in state
+    before: false # get extended data (e.g. 60 days daily statistic rather than 30 days)
 ```
 - Possible values for `type`:
   - BIMONTHLY
