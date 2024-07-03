@@ -26,7 +26,13 @@ sensor:
     password: '' # CLP web site password
     timeout: 30 # connection timeout in second
     type: '' # type of data to be shown in state
-    before: false # get extended data (e.g. 60 days daily statistic rather than 30 days)
+    get_account: false # get account summary
+    get_bill: false # get bills
+    get_estimation: false # get usage estimation
+    get_daily: false # get daily usage
+    get_hourly: false # get hourly usage
+    renewable_energy_sensor_enable: false # enable renewable energy sensor
+    renewable_energy_sensor_name: 'CLP Renewable Energy' # renewable energy sensor name
 ```
 - Possible values for `type`:
   - BIMONTHLY

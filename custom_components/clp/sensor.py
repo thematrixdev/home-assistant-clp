@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime
 import logging
 
-import aiohttp
 import async_timeout
 import homeassistant.helpers.config_validation as cv
 import pytz
@@ -23,7 +22,6 @@ from homeassistant.const import (
     CONF_PASSWORD,
     CONF_TIMEOUT,
     CONF_TYPE,
-    CONF_BEFORE,
     UnitOfEnergy,
 )
 from homeassistant.core import HomeAssistant
@@ -32,73 +30,155 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
 
-DOMAIN = "CLP"
+from .const import (
+    CONF_DOMAIN,
+    CONF_GET_ACCT,
+    CONF_GET_BILL,
+    CONF_GET_ESTIMATION,
+    CONF_GET_DAILY,
+    CONF_GET_HOURLY,
+    CONF_RES_ENABLE,
+    CONF_RES_NAME,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_NAME): cv.string,
+    vol.Required(CONF_NAME, default='CLP'): cv.string,
     vol.Required(CONF_USERNAME): cv.string,
     vol.Required(CONF_PASSWORD): cv.string,
     vol.Optional(CONF_TIMEOUT, default=30): cv.positive_int,
     vol.Optional(CONF_TYPE, default=''): cv.string,
-    vol.Optional(CONF_BEFORE, default=False): cv.boolean,
+    vol.Optional(CONF_GET_ACCT, default=False): cv.boolean,
+    vol.Optional(CONF_GET_BILL, default=False): cv.boolean,
+    vol.Optional(CONF_GET_ESTIMATION, default=False): cv.boolean,
+    vol.Optional(CONF_GET_DAILY, default=False): cv.boolean,
+    vol.Optional(CONF_GET_HOURLY, default=False): cv.boolean,
+    vol.Optional(CONF_RES_ENABLE, default=False): cv.boolean,
+    vol.Optional(CONF_RES_NAME, default='CLP Renewable Energy'): cv.string,
 })
 
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=600)
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.101 Safari/537.36"
 
-def get_dates(timezone):
-    today = datetime.datetime.now(timezone)
-    tomorrow = datetime.datetime.now(timezone) + datetime.timedelta(days=1)
-    last_month = (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=-1))
-    this_month = datetime.datetime.now(timezone).replace(day=1)
-    next_month = (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=1))
+DOMAIN = CONF_DOMAIN
 
-    return {
-        "today": today.strftime("%Y%m%d"),
-        "tomorrow": tomorrow.strftime("%Y%m%d"),
-        "last_month": last_month.strftime("%Y%m%d"),
-        "this_month": this_month.strftime("%Y%m%d"),
-        "next_month": next_month.strftime("%Y%m%d")
-    }
 
 async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+        hass: HomeAssistant,
+        config: ConfigType,
+        async_add_entities: AddEntitiesCallback,
+        discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     session = aiohttp_client.async_get_clientsession(hass)
-    name = config.get(CONF_NAME)
     username = config.get(CONF_USERNAME)
     password = config.get(CONF_PASSWORD)
     timeout = config.get(CONF_TIMEOUT)
     type = config.get(CONF_TYPE)
-    get_extended_data = config.get(CONF_BEFORE)
+
+    csrf_token = await get_csrf_token(session, timeout)
+    await login(session, username, password, csrf_token, timeout)
 
     async_add_entities(
         [
             CLPSensor(
+                sensor_type='main',
                 session=session,
-                name=name,
-                username=username,
-                password=password,
+                csrf_token=csrf_token,
+                name=config.get(CONF_NAME),
                 timeout=timeout,
                 type=type,
-                get_extended_data=get_extended_data,
+                get_acct=config.get(CONF_GET_ACCT),
+                get_bill=config.get(CONF_GET_BILL),
+                get_estimation=config.get(CONF_GET_ESTIMATION),
+                get_daily=config.get(CONF_GET_DAILY),
+                get_hourly=config.get(CONF_GET_HOURLY),
             ),
         ],
         update_before_add=True,
     )
 
+    if config.get(CONF_RES_ENABLE):
+        async_add_entities(
+            [
+                CLPSensor(
+                    sensor_type='renewable_energy',
+                    session=session,
+                    csrf_token=csrf_token,
+                    name=config.get(CONF_RES_NAME),
+                    timeout=timeout,
+                    type=type,
+                    get_acct=config.get(CONF_GET_ACCT),
+                    get_bill=config.get(CONF_GET_BILL),
+                    get_estimation=config.get(CONF_GET_ESTIMATION),
+                    get_daily=config.get(CONF_GET_DAILY),
+                    get_hourly=config.get(CONF_GET_HOURLY),
+                ),
+            ],
+            update_before_add=True,
+        )
+
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        async_add_entities: AddEntitiesCallback,
 ) -> None:
     await async_setup_platform(hass, {}, async_add_entities)
+
+
+def get_dates(timezone):
+    return {
+        "yesterday": datetime.datetime.now(timezone) + datetime.timedelta(days=-1),
+        "today": datetime.datetime.now(timezone),
+        "tomorrow": datetime.datetime.now(timezone) + datetime.timedelta(days=1),
+        "last_month": (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=-1)),
+        "this_month": datetime.datetime.now(timezone).replace(day=1),
+        "next_month": (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=1)),
+    }
+
+
+async def get_csrf_token(session, timeout):
+    async with async_timeout.timeout(timeout):
+        response = await session.request(
+            "GET",
+            "https://services.clp.com.hk/zh/login/index.aspx",
+            headers={
+                "user-agent": USER_AGENT,
+            },
+        )
+        response.raise_for_status()
+        html = await response.text()
+        soup = BeautifulSoup(html, 'html.parser')
+        csrf_token = soup.select('meta[name="csrf-token"]')[0].attrs['content']
+        return csrf_token
+
+
+async def login(session, username, password, csrf_token, timeout):
+    async with async_timeout.timeout(timeout):
+        response = await session.request(
+            "POST",
+            "https://services.clp.com.hk/Service/ServiceLogin.ashx",
+            headers={
+                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "devicetype": "web",
+                "html-lang": "zh",
+                "user-agent": USER_AGENT,
+                "x-csrftoken": csrf_token,
+                "x-requested-with": "XMLHttpRequest",
+            },
+            data={
+                "username": username,
+                "password": password,
+                "rememberMe": "true",
+                "loginPurpose": "",
+                "magentoToken": "",
+                "domeoId": "",
+                "domeoPointsBalance": "",
+                "domeoPointsNeeded": "",
+            },
+        )
+        response.raise_for_status()
 
 
 class CLPSensor(SensorEntity):
@@ -106,21 +186,31 @@ class CLPSensor(SensorEntity):
 
     def __init__(
             self,
+            sensor_type: str,
             session: aiohttp.ClientSession,
+            csrf_token: str,
             name: str,
-            username: str,
-            password: str,
             timeout: int,
             type: str,
-            get_extended_data: bool,
+            get_acct: bool,
+            get_bill: bool,
+            get_estimation: bool,
+            get_daily: bool,
+            get_hourly: bool,
     ) -> None:
+        self._sensor_type = sensor_type
+
         self._session = session
+        self._csrf_token = csrf_token
         self._name = name
-        self._username = username
-        self._password = password
         self._timeout = timeout
+
         self._type = type
-        self._get_extended_data = get_extended_data
+        self._get_acct = get_acct
+        self._get_bill = get_bill
+        self._get_estimation = get_estimation
+        self._get_daily = get_daily
+        self._get_hourly = get_hourly
 
         self._attr_device_class = SensorDeviceClass.ENERGY
         self._attr_native_value = None
@@ -128,14 +218,6 @@ class CLPSensor(SensorEntity):
         self._attr_state_class = SensorStateClass.TOTAL
 
         self._state_data_type = None
-
-        self._account = None
-        self._eco_points = None
-        self._bills = None
-        self._billed = None
-        self._unbilled = None
-        self._daily = None
-        self._hourly = None
 
     @property
     def state_class(self) -> SensorStateClass | str | None:
@@ -147,304 +229,336 @@ class CLPSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {
+        attr = {
             "state_data_type": self._state_data_type,
-            "account": self._account,
-            "eco_points": self._eco_points,
-            "bills": self._bills,
-            "billed": self._billed,
-            "unbilled": self._unbilled,
-            "daily": self._daily,
-            "hourly": self._hourly,
         }
+
+        if hasattr(self, '_account'):
+            attr["account"] = self._account
+
+        if hasattr(self, '_eco_points'):
+            attr["eco_points"] = self._eco_points
+
+        if hasattr(self, '_bills'):
+            attr["bills"] = self._bills
+
+        if hasattr(self, '_billed'):
+            attr["billed"] = self._billed
+
+        if hasattr(self, '_unbilled'):
+            attr["unbilled"] = self._unbilled
+
+        if hasattr(self, '_daily'):
+            attr["daily"] = self._daily
+
+        if hasattr(self, '_hourly'):
+            attr["hourly"] = self._hourly
+
+        return attr
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self) -> None:
         try:
-            _LOGGER.debug("CLP BEGIN")
-
-            async with async_timeout.timeout(self._timeout):
-                response = await self._session.request(
-                    "GET",
-                    "https://services.clp.com.hk/zh/login/index.aspx",
-                    headers={
-                        "user-agent": USER_AGENT,
-                    },
-                )
-                response.raise_for_status()
-                html = await response.text()
-                soup = BeautifulSoup(html, 'html.parser')
-                csrf_token = soup.select('meta[name="csrf-token"]')[0].attrs['content']
-
-            _LOGGER.debug("CLP LOGIN")
-            async with async_timeout.timeout(self._timeout):
-                response = await self._session.request(
-                    "POST",
-                    "https://services.clp.com.hk/Service/ServiceLogin.ashx",
-                    headers={
-                        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                        "devicetype": "web",
-                        "html-lang": "zh",
-                        "user-agent": USER_AGENT,
-                        "x-csrftoken": csrf_token,
-                        "x-requested-with": "XMLHttpRequest",
-                    },
-                    data={
-                        "username": self._username,
-                        "password": self._password,
-                        "rememberMe": "true",
-                        "loginPurpose": "",
-                        "magentoToken": "",
-                        "domeoId": "",
-                        "domeoPointsBalance": "",
-                        "domeoPointsNeeded": "",
-                    },
-                )
-                response.raise_for_status()
-
             dates = get_dates(self._timezone)
-            today = dates["today"]
-            tomorrow = dates["tomorrow"]
-            last_month = dates["last_month"]
-            this_month = dates["this_month"]
-            next_month = dates["next_month"]
 
-            _LOGGER.debug("CLP ACCOUNT")
-            async with async_timeout.timeout(self._timeout):
-                response = await self._session.request(
-                    "POST",
-                    "https://services.clp.com.hk/Service/ServiceGetAccBaseInfoWithBillV2.ashx",
-                    headers={
-                        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                        "devicetype": "web",
-                        "html-lang": "zh",
-                        "user-agent": USER_AGENT,
-                        "x-csrftoken": csrf_token,
-                        "x-requested-with": "XMLHttpRequest",
-                    },
-                    data={
-                        "assCA": "",
-                        "genPdfFlag": "X",
-                    },
-                )
-                response.raise_for_status()
-                data = await response.json()
+            if self._sensor_type == 'main':
+                if self._get_acct:
+                    _LOGGER.debug("CLP ACCOUNT")
+                    async with async_timeout.timeout(self._timeout):
+                        response = await self._session.request(
+                            "POST",
+                            "https://services.clp.com.hk/Service/ServiceGetAccBaseInfoWithBillV2.ashx",
+                            headers={
+                                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                "devicetype": "web",
+                                "html-lang": "zh",
+                                "user-agent": USER_AGENT,
+                                "x-csrftoken": self._csrf_token,
+                                "x-requested-with": "XMLHttpRequest",
+                            },
+                            data={
+                                "assCA": "",
+                                "genPdfFlag": "X",
+                            },
+                        )
+                        response.raise_for_status()
+                        data = await response.json()
 
-                _LOGGER.debug(data)
+                        _LOGGER.debug(data)
 
-                due = ''
-                if data['NextDueDate']:
-                    due = datetime.datetime.strptime(data['NextDueDate'], '%Y%m%d%H%M%S')
+                        due = ''
+                        if data['NextDueDate']:
+                            due = datetime.datetime.strptime(data['NextDueDate'], '%Y%m%d%H%M%S')
 
-                self._account = {
-                    'number': data['caNo'],
-                    'messages': data['alertMsgData'],
-                    'outstanding': data['DunningAmount'],
-                    'due': due,
-                }
-
-            _LOGGER.debug("CLP BILL")
-            async with async_timeout.timeout(self._timeout):
-                response = await self._session.request(
-                    "POST",
-                    "https://services.clp.com.hk/Service/ServiceGetBillConsumptionHistory.ashx",
-                    headers={
-                        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                        "devicetype": "web",
-                        "html-lang": "zh",
-                        "user-agent": USER_AGENT,
-                        "x-csrftoken": csrf_token,
-                        "x-requested-with": "XMLHttpRequest",
-                    },
-                    data={
-                        "contractAccount": "",
-                        "start": today,
-                        "end": today,
-                        "mode": "H",
-                        "type": "kWh",
-                    },
-                )
-                response.raise_for_status()
-                data = await response.json()
-
-                _LOGGER.debug(data)
-
-                if data['results']:
-                    if self._type == '' or self._type.upper() == 'BIMONTHLY':
-                        self._state_data_type = 'BIMONTHLY'
-                        self._attr_native_value = data['results'][0]['TOT_KWH']
-                        self._attr_last_reset = datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S')
-
-                    self._billed = {
-                        "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S'),
-                        "kwh": data['results'][0]['TOT_KWH'],
-                        "cost": data['results'][0]['TOT_COST'],
-                    }
-
-                    self._bills = []
-                    for row in data['results']:
-                        self._bills.append({
-                            'start': datetime.datetime.strptime(row['BEGABRPE'], '%Y%m%d'),
-                            'end': datetime.datetime.strptime(row['ENDABRPE'], '%Y%m%d'),
-                            'kwh': row['TOT_KWH'],
-                            'cost': row['TOT_COST'],
-                        })
-
-            _LOGGER.debug("CLP ESTIMATION")
-            async with async_timeout.timeout(self._timeout):
-                response = await self._session.request(
-                    "POST",
-                    "https://services.clp.com.hk/Service/ServiceGetProjectedConsumption.ashx",
-                    headers={
-                        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                        "devicetype": "web",
-                        "html-lang": "zh",
-                        "user-agent": USER_AGENT,
-                        "x-csrftoken": csrf_token,
-                        "x-requested-with": "XMLHttpRequest",
-                    },
-                    data={
-                        "contractAccount": "",
-                        "isNonAMI": "false",
-                        "rateCate": "DOMESTIC",
-                    },
-                )
-                response.raise_for_status()
-                data = await response.json()
-
-                _LOGGER.debug(data)
-
-                if data['ErrorCode'] == '':
-                    consumed_start = None
-                    consumed_end = None
-                    estimation_start = None
-                    estimation_end = None
-
-                    if data['currentStartDate']:
-                        consumed_start = datetime.datetime.strptime(data['currentStartDate'], '%Y%m%d%H%M%S')
-
-                    if data['currentEndDate']:
-                        consumed_end = datetime.datetime.strptime(data['currentEndDate'], '%Y%m%d%H%M%S')
-
-                    if data['projectedStartDate']:
-                        estimation_start = datetime.datetime.strptime(data['projectedStartDate'], '%Y%m%d%H%M%S')
-
-                    if data['projectedEndDate']:
-                        estimation_end = datetime.datetime.strptime(data['projectedEndDate'], '%Y%m%d%H%M%S')
-
-                    self._unbilled = {
-                        "consumed_kwh": float(data['currentConsumption']),
-                        "consumed_cost": float(data['currentCost']),
-                        "consumed_start": consumed_start,
-                        "consumed_end": consumed_end,
-                        "estimation_start": estimation_start,
-                        "estimation_end": estimation_end,
-                        "estimated_kwh": float(data['projectedConsumption']),
-                        "estimated_cost": float(data['projectedCost']),
-                    }
-                else:
-                    self._unbilled = {
-                        'error': {
-                            'code': data['ErrorCode'],
-                            'message': data['ErrorMsg'],
+                        self._account = {
+                            'number': data['caNo'],
+                            'messages': data['alertMsgData'],
+                            'outstanding': data['DunningAmount'],
+                            'due': due,
                         }
-                    }
 
-            _LOGGER.debug("CLP DAILY")
-            async with async_timeout.timeout(self._timeout):
-                response = await self._session.request(
-                    "POST",
-                    "https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx",
-                    headers={
-                        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                        "devicetype": "web",
-                        "html-lang": "zh",
-                        "user-agent": USER_AGENT,
-                        "x-csrftoken": csrf_token,
-                        "x-requested-with": "XMLHttpRequest",
-                    },
-                    data={
-                        "contractAccount": "",
-                        "start": last_month if self._get_extended_data else this_month,
-                        "end": next_month,
-                        "mode": "D",
-                        "type": "kWh",
-                    },
-                )
-                response.raise_for_status()
-                data = await response.json()
+                if self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY':
+                    _LOGGER.debug("CLP BILL")
+                    async with async_timeout.timeout(self._timeout):
+                        response = await self._session.request(
+                            "POST",
+                            "https://services.clp.com.hk/Service/ServiceGetBillConsumptionHistory.ashx",
+                            headers={
+                                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                "devicetype": "web",
+                                "html-lang": "zh",
+                                "user-agent": USER_AGENT,
+                                "x-csrftoken": self._csrf_token,
+                                "x-requested-with": "XMLHttpRequest",
+                            },
+                            data={
+                                "contractAccount": "",
+                                "start": dates["today"].strftime("%Y%m%d"),
+                                "end": dates["today"].strftime("%Y%m%d"),
+                                "mode": "H",
+                                "type": "kWh",
+                            },
+                        )
+                        response.raise_for_status()
+                        data = await response.json()
 
-                _LOGGER.debug(data)
+                        _LOGGER.debug(data)
 
-                if data['results']:
-                    if self._type == '' or self._type.upper() == 'DAILY':
-                        self._state_data_type = 'DAILY'
-                        self._attr_native_value = data['results'][-1]['KWH_TOTAL']
-                        self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
+                        if data['results']:
+                            if self._type == '' or self._type.upper() == 'BIMONTHLY':
+                                self._state_data_type = 'BIMONTHLY'
+                                self._attr_native_value = data['results'][0]['TOT_KWH']
+                                self._attr_last_reset = datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S')
+                            if self._get_bill:
+                                self._billed = {
+                                    "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S'),
+                                    "kwh": data['results'][0]['TOT_KWH'],
+                                    "cost": data['results'][0]['TOT_COST'],
+                                }
 
-                    self._daily = []
-                    for row in data['results']:
-                        start = None
-                        if row['START_DT']:
-                            start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+                                self._bills = []
+                                for row in data['results']:
+                                    self._bills.append({
+                                        'start': datetime.datetime.strptime(row['BEGABRPE'], '%Y%m%d'),
+                                        'end': datetime.datetime.strptime(row['ENDABRPE'], '%Y%m%d'),
+                                        'kwh': row['TOT_KWH'],
+                                        'cost': row['TOT_COST'],
+                                    })
 
-                        self._daily.append({
-                            'start': start,
-                            'kwh': row['KWH_TOTAL'],
-                        })
+                if self._get_estimation:
+                    _LOGGER.debug("CLP ESTIMATION")
+                    async with async_timeout.timeout(self._timeout):
+                        response = await self._session.request(
+                            "POST",
+                            "https://services.clp.com.hk/Service/ServiceGetProjectedConsumption.ashx",
+                            headers={
+                                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                "devicetype": "web",
+                                "html-lang": "zh",
+                                "user-agent": USER_AGENT,
+                                "x-csrftoken": self._csrf_token,
+                                "x-requested-with": "XMLHttpRequest",
+                            },
+                            data={
+                                "contractAccount": "",
+                                "isNonAMI": "false",
+                                "rateCate": "DOMESTIC",
+                            },
+                        )
+                        response.raise_for_status()
+                        data = await response.json()
 
-            _LOGGER.debug("CLP HOURLY")
-            async with async_timeout.timeout(self._timeout):
-                for i in range(2):
-                    if i == 0:
-                        start = today
-                        end = tomorrow
-                    else:
-                        start = (datetime.datetime.today() + datetime.timedelta(days=-1)).strftime("%Y%m%d")
-                        end = today
+                        _LOGGER.debug(data)
 
-                    response = await self._session.request(
-                        "POST",
-                        "https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx",
-                        headers={
-                            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                            "devicetype": "web",
-                            "html-lang": "zh",
-                            "user-agent": USER_AGENT,
-                            "x-csrftoken": csrf_token,
-                            "x-requested-with": "XMLHttpRequest",
-                        },
-                        data={
-                            "contractAccount": "",
-                            "start": start,
-                            "end": end,
-                            "mode": "H",
-                            "type": "kWh",
-                        },
-                    )
-                    response.raise_for_status()
-                    data = await response.json()
+                        if data['ErrorCode'] == '':
+                            consumed_start = None
+                            consumed_end = None
+                            estimation_start = None
+                            estimation_end = None
 
-                    _LOGGER.debug(data)
+                            if data['currentStartDate']:
+                                consumed_start = datetime.datetime.strptime(data['currentStartDate'], '%Y%m%d%H%M%S')
 
-                    if data['results']:
-                        if self._type == '' or self._type.upper() == 'HOURLY':
+                            if data['currentEndDate']:
+                                consumed_end = datetime.datetime.strptime(data['currentEndDate'], '%Y%m%d%H%M%S')
+
+                            if data['projectedStartDate']:
+                                estimation_start = datetime.datetime.strptime(data['projectedStartDate'], '%Y%m%d%H%M%S')
+
+                            if data['projectedEndDate']:
+                                estimation_end = datetime.datetime.strptime(data['projectedEndDate'], '%Y%m%d%H%M%S')
+
+                            self._unbilled = {
+                                "consumed_kwh": float(data['currentConsumption']),
+                                "consumed_cost": float(data['currentCost']),
+                                "consumed_start": consumed_start,
+                                "consumed_end": consumed_end,
+                                "estimation_start": estimation_start,
+                                "estimation_end": estimation_end,
+                                "estimated_kwh": float(data['projectedConsumption']),
+                                "estimated_cost": float(data['projectedCost']),
+                            }
+                        else:
+                            self._unbilled = {
+                                'error': {
+                                    'code': data['ErrorCode'],
+                                    'message': data['ErrorMsg'],
+                                }
+                            }
+
+                if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
+                    _LOGGER.debug("CLP DAILY")
+                    async with async_timeout.timeout(self._timeout):
+                        response = await self._session.request(
+                            "POST",
+                            "https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx",
+                            headers={
+                                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                "devicetype": "web",
+                                "html-lang": "zh",
+                                "user-agent": USER_AGENT,
+                                "x-csrftoken": self._csrf_token,
+                                "x-requested-with": "XMLHttpRequest",
+                            },
+                            data={
+                                "contractAccount": "",
+                                "start": dates["last_month"].strftime("%Y%m%d"),
+                                "end": dates["next_month"].strftime("%Y%m%d"),
+                                "mode": "D",
+                                "type": "kWh",
+                            },
+                        )
+                        response.raise_for_status()
+                        data = await response.json()
+
+                        _LOGGER.debug(data)
+
+                        if data['results']:
+                            if self._type == '' or self._type.upper() == 'DAILY':
+                                self._state_data_type = 'DAILY'
+                                self._attr_native_value = data['results'][-1]['KWH_TOTAL']
+                                self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
+
+                            if self._get_daily:
+                                self._daily = []
+                                for row in data['results']:
+                                    start = None
+                                    if row['START_DT']:
+                                        start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+
+                                    self._daily.append({
+                                        'start': start,
+                                        'kwh': row['KWH_TOTAL'],
+                                    })
+
+                if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
+                    _LOGGER.debug("CLP HOURLY")
+
+                    self._hourly = []
+                    async with async_timeout.timeout(self._timeout):
+                        for i in range(2):
+                            if i == 0:
+                                start = dates["today"].strftime("%Y%m%d")
+                                end = dates["tomorrow"].strftime("%Y%m%d")
+                            else:
+                                start = dates["yesterday"].strftime("%Y%m%d")
+                                end = dates["today"].strftime("%Y%m%d")
+
+                            response = await self._session.request(
+                                "POST",
+                                "https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx",
+                                headers={
+                                    "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                    "devicetype": "web",
+                                    "html-lang": "zh",
+                                    "user-agent": USER_AGENT,
+                                    "x-csrftoken": self._csrf_token,
+                                    "x-requested-with": "XMLHttpRequest",
+                                },
+                                data={
+                                    "contractAccount": "",
+                                    "start": start,
+                                    "end": end,
+                                    "mode": "H",
+                                    "type": "kWh",
+                                },
+                            )
+                            response.raise_for_status()
+                            data = await response.json()
+
+                            _LOGGER.debug(data)
+                            
+                            if data['results']:
+                                for row in data['results']:
+                                    start = None
+                                    if row['START_DT']:
+                                        start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+
+                                    self._hourly.append({
+                                        'start': start,
+                                        'kwh': row['KWH_TOTAL'],
+                                    })
+
+                                self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=True)
+
+                                if self._type == '' or self._type.upper() == 'HOURLY':
+                                    self._state_data_type = 'HOURLY'
+                                    self._attr_native_value = self._hourly[0]['kwh']
+                                    self._attr_last_reset = self._hourly[0]['start']
+
+            elif self._sensor_type == 'renewable_energy':
+                _LOGGER.debug("CLP Renewable-Energy")
+
+                self._hourly = []
+                async with async_timeout.timeout(self._timeout):
+                    for i in range(2):
+                        if i == 0:
+                            start = dates["today"].strftime("%m/%d/%Y")
+                        else:
+                            start = dates["yesterday"].strftime("%m/%d/%Y")
+
+                        response = await self._session.request(
+                            "POST",
+                            "https://services.clp.com.hk/Service/ServiceREGenGraph.ashx",
+                            headers={
+                                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                "devicetype": "web",
+                                "html-lang": "zh",
+                                "user-agent": USER_AGENT,
+                                "x-csrftoken": self._csrf_token,
+                                "x-requested-with": "XMLHttpRequest",
+                            },
+                            data={
+                                "mode": "H",
+                                "startDate": start,
+                                "perCount": "",
+                                "location": "C",
+                            },
+                        )
+                        response.raise_for_status()
+                        data = await response.json()
+
+                        _LOGGER.debug(data)
+
+                        if data['ConsumptionData']:
                             self._state_data_type = 'HOURLY'
-                            self._attr_native_value = data['results'][-1]['KWH_TOTAL']
-                            self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
 
-                        self._hourly = []
-                        for row in data['results']:
-                            start = None
-                            if row['START_DT']:
-                                start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+                            for row in data['ConsumptionData']:
+                                if row['ValidateStatus'] == 'N':
+                                    break
 
-                            self._hourly.append({
-                                'start': start,
-                                'kwh': row['KWH_TOTAL'],
-                            })
+                                start = None
+                                if row['Startdate']:
+                                    start = datetime.datetime.strptime(row['Startdate'], '%Y%m%d%H%M%S')
 
-                        break
+                                self._hourly.append({
+                                    'start': start,
+                                    'kwh': row['KWHTotal'],
+                                })
+
+                            self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=True)
+                            self._attr_native_value = self._hourly[0]['kwh']
+                            self._attr_last_reset = self._hourly[0]['start']
 
             _LOGGER.debug("CLP END")
         except Exception as e:
