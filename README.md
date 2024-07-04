@@ -33,6 +33,10 @@ sensor:
     get_hourly: false # get hourly usage
     renewable_energy_sensor_enable: false # enable renewable energy sensor
     renewable_energy_sensor_name: 'CLP Renewable Energy' # renewable energy sensor name
+    renewable_energy_sensor_type: '' # type of data to be shown in state
+    renewable_energy_sensor_get_bill: false # get generation in bills
+    renewable_energy_sensor_get_daily: false # get daily generation
+    renewable_energy_sensor_get_hourly: false # get hourly generation
 ```
 - Possible values for `type`:
   - BIMONTHLY
