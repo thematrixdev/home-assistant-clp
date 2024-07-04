@@ -1,5 +1,7 @@
 # CLP (HK) Statistic Home-Assistant Custom-Component 
 
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://buymeacoffee.com/thematrixdev)
+
 ## Prerequisite
 - CLP Subscriber
 - CLP smart meter installed
