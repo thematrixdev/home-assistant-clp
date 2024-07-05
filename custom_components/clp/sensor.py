@@ -64,7 +64,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
     vol.Optional(CONF_RES_ENABLE, default=False): cv.boolean,
     vol.Optional(CONF_RES_NAME, default='CLP Renewable Energy'): cv.string,
-    vol.Optional(CONF_RES_TYPE, default=None): cv.string,
+    vol.Optional(CONF_RES_TYPE, default=''): cv.string,
     vol.Optional(CONF_RES_GET_BILL, default=False): cv.boolean,
     vol.Optional(CONF_RES_GET_DAILY, default=False): cv.boolean,
     vol.Optional(CONF_RES_GET_HOURLY, default=False): cv.boolean,
@@ -461,7 +461,6 @@ class CLPSensor(SensorEntity):
                 if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
                     _LOGGER.debug("CLP HOURLY")
 
-                    self._hourly = []
                     async with async_timeout.timeout(self._timeout):
                         for i in range(2):
                             if i == 0:
@@ -496,22 +495,23 @@ class CLPSensor(SensorEntity):
                             _LOGGER.debug(data)
                             
                             if data['results']:
-                                for row in data['results']:
-                                    start = None
-                                    if row['START_DT']:
-                                        start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
-
-                                    self._hourly.append({
-                                        'start': start,
-                                        'kwh': row['KWH_TOTAL'],
-                                    })
-
-                                self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=True)
-
-                                if self._type == '' or self._type.upper() == 'HOURLY':
+                                if i == 0 and (self._type == '' or self._type.upper() == 'HOURLY'):
                                     self._state_data_type = 'HOURLY'
-                                    self._attr_native_value = self._hourly[0]['kwh']
-                                    self._attr_last_reset = self._hourly[0]['start']
+                                    self._attr_native_value = data['results'][-1]['KWH_TOTAL']
+                                    self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
+
+                                if self._get_hourly:
+                                    for row in data['results']:
+                                        start = None
+                                        if row['START_DT']:
+                                            start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+
+                                        self._hourly.append({
+                                            'start': start,
+                                            'kwh': row['KWH_TOTAL'],
+                                        })
+
+                                    self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=True)
 
             elif self._sensor_type == 'renewable_energy':
                 _LOGGER.debug("CLP Renewable-Energy")
