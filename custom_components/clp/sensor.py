@@ -462,56 +462,49 @@ class CLPSensor(SensorEntity):
                     _LOGGER.debug("CLP HOURLY")
 
                     async with async_timeout.timeout(self._timeout):
-                        for i in range(2):
-                            if i == 0:
-                                start = dates["today"].strftime("%Y%m%d")
-                                end = dates["tomorrow"].strftime("%Y%m%d")
-                            else:
-                                start = dates["yesterday"].strftime("%Y%m%d")
-                                end = dates["today"].strftime("%Y%m%d")
+                        start = dates["yesterday"].strftime("%Y%m%d")
+                        end = dates["tomorrow"].strftime("%Y%m%d")
 
-                            response = await self._session.request(
-                                "POST",
-                                "https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx",
-                                headers={
-                                    "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                                    "devicetype": "web",
-                                    "html-lang": "zh",
-                                    "user-agent": USER_AGENT,
-                                    "x-csrftoken": self._csrf_token,
-                                    "x-requested-with": "XMLHttpRequest",
-                                },
-                                data={
-                                    "contractAccount": "",
-                                    "start": start,
-                                    "end": end,
-                                    "mode": "H",
-                                    "type": "kWh",
-                                },
-                            )
-                            response.raise_for_status()
-                            data = await response.json()
+                        response = await self._session.request(
+                            "POST",
+                            "https://services.clp.com.hk/Service/ServiceGetConsumptionHsitory.ashx",
+                            headers={
+                                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                "devicetype": "web",
+                                "html-lang": "zh",
+                                "user-agent": USER_AGENT,
+                                "x-csrftoken": self._csrf_token,
+                                "x-requested-with": "XMLHttpRequest",
+                            },
+                            data={
+                                "contractAccount": "",
+                                "start": start,
+                                "end": end,
+                                "mode": "H",
+                                "type": "kWh",
+                            },
+                        )
+                        response.raise_for_status()
+                        data = await response.json()
 
-                            _LOGGER.debug(data)
-                            
-                            if data['results']:
-                                if i == 0 and (self._type == '' or self._type.upper() == 'HOURLY'):
-                                    self._state_data_type = 'HOURLY'
-                                    self._attr_native_value = data['results'][-1]['KWH_TOTAL']
-                                    self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
+                        _LOGGER.debug(data)
 
-                                if self._get_hourly:
-                                    for row in data['results']:
-                                        start = None
-                                        if row['START_DT']:
-                                            start = datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S')
+                        if data['results']:
+                            if self._type == '' or self._type.upper() == 'HOURLY':
+                                self._state_data_type = 'HOURLY'
+                                self._attr_native_value = data['results'][-1]['KWH_TOTAL']
+                                self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
 
-                                        self._hourly.append({
-                                            'start': start,
-                                            'kwh': row['KWH_TOTAL'],
-                                        })
+                            if self._get_hourly:
+                                self._hourly = []
 
-                                    self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=True)
+                                for row in data['results']:
+                                    self._hourly.append({
+                                        'start': datetime.datetime.strptime(row['START_DT'], '%Y%m%d%H%M%S'),
+                                        'kwh': row['KWH_TOTAL'],
+                                    })
+
+                                self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=True)
 
             elif self._sensor_type == 'renewable_energy':
                 _LOGGER.debug("CLP Renewable-Energy")
