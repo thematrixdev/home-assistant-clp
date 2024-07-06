@@ -27,16 +27,15 @@
 ```
 sensor:
   - platform: clp
-    name: 'CLP'
     username: ''
     password: ''
 ```
 
 | Key                                  | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
 |--------------------------------------|---------|----------|----------------------------------------------|--------------------------|-------------------------------------------------------------------------------------|
-| `name`                               | string  | *        | Any string                                   | `CLP`                    | Name of the sensor                                                                  |
 | `username`                           | string  | *        | Any string                                   | (N/A)                    | CLP account username                                                                |
 | `password`                           | string  | *        | Any string                                   | (N/A)                    | CLP account password                                                                |
+| `name`                               | string  |          | Any string                                   | `CLP`                    | Name of the sensor                                                                  |
 | `timeout`                            | int     |          | Any integer                                  | `30`                     | Connection timeout in second                                                        |
 | `type`                               | string  |          | ` `<br/>`BIMONTHLY`<br/>`DAILY`<br/>`HOURLY` | ` `                      | Type of data to be shown in state<br/>If not specified, best accurate value is used |
 | `get_account`                        | boolean |          | `True`<br/>`False`                           | `False`                  | Get account summary                                                                 |

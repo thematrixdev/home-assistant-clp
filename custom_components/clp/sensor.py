@@ -54,7 +54,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_PASSWORD): cv.string,
     vol.Optional(CONF_TIMEOUT, default=30): cv.positive_int,
 
-    vol.Required(CONF_NAME, default='CLP'): cv.string,
+    vol.Optional(CONF_NAME, default='CLP'): cv.string,
     vol.Optional(CONF_TYPE, default=''): cv.string,
     vol.Optional(CONF_GET_ACCT, default=False): cv.boolean,
     vol.Optional(CONF_GET_BILL, default=False): cv.boolean,
@@ -300,7 +300,7 @@ class CLPSensor(SensorEntity):
                         self._account = {
                             'number': data['caNo'],
                             'messages': data['alertMsgData'],
-                            'outstanding': data['DunningAmount'],
+                            'outstanding': float(data['DunningAmount']),
                             'due': due,
                         }
 
@@ -343,14 +343,16 @@ class CLPSensor(SensorEntity):
                                     "cost": data['results'][0]['TOT_COST'],
                                 }
 
-                                self._bills = []
+                                bills = []
                                 for row in data['results']:
-                                    self._bills.append({
+                                    bills.append({
                                         'start': datetime.datetime.strptime(row['BEGABRPE'], '%Y%m%d'),
                                         'end': datetime.datetime.strptime(row['ENDABRPE'], '%Y%m%d'),
                                         'kwh': row['TOT_KWH'],
                                         'cost': row['TOT_COST'],
                                     })
+
+                                self._bills = sorted(bills, key=lambda x: x['start'], reverse=False)
 
                 if self._get_estimation:
                     _LOGGER.debug("CLP ESTIMATION")
@@ -504,7 +506,7 @@ class CLPSensor(SensorEntity):
                                         'kwh': row['KWH_TOTAL'],
                                     })
 
-                                self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=True)
+                                self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=False)
 
             elif self._sensor_type == 'renewable_energy':
                 _LOGGER.debug("CLP Renewable-Energy")
@@ -538,7 +540,7 @@ class CLPSensor(SensorEntity):
                         if data['ConsumptionData']:
                             if self._type == '' or self._type.upper() == 'BIMONTHLY':
                                 self._state_data_type = 'BIMONTHLY'
-                                self._attr_native_value = data['ConsumptionData'][-1]['KWHTotal']
+                                self._attr_native_value = float(data['ConsumptionData'][-1]['KWHTotal'])
                                 self._attr_last_reset = datetime.datetime.strptime(data['ConsumptionData'][-1]['Enddate'], '%Y%m%d%H%M%S')
 
                             if self._get_bill:
@@ -547,7 +549,7 @@ class CLPSensor(SensorEntity):
                                     self._bills.append({
                                         'start': datetime.datetime.strptime(row['Startdate'], '%Y%m%d%H%M%S'),
                                         'end': datetime.datetime.strptime(row['Enddate'], '%Y%m%d%H%M%S'),
-                                        'kwh': row['KWHTotal'],
+                                        'kwh': float(row['KWHTotal']),
                                     })
 
                 if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
@@ -581,7 +583,7 @@ class CLPSensor(SensorEntity):
                                 for row in sorted(data['ConsumptionData'], key=lambda x: x['Startdate'], reverse=True):
                                     if row['ValidateStatus'] == 'Y':
                                         self._state_data_type = 'DAILY'
-                                        self._attr_native_value = row['KWHTotal']
+                                        self._attr_native_value = float(row['KWHTotal'])
                                         self._attr_last_reset = datetime.datetime.strptime(row['Startdate'], '%Y%m%d%H%M%S')
                                         break
 
@@ -595,14 +597,15 @@ class CLPSensor(SensorEntity):
 
                                     self._daily.append({
                                         'start': start,
-                                        'kwh': row['KWHTotal'],
-                                        'validate_status': row['ValidateStatus'],
+                                        'kwh': float(row['KWHTotal']),
                                     })
 
                 if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
                     _LOGGER.debug("CLP HOURLY")
 
-                    self._hourly = []
+                    if self._get_hourly:
+                        self._hourly = []
+
                     async with async_timeout.timeout(self._timeout):
                         for i in range(2):
                             if i == 0:
@@ -634,24 +637,25 @@ class CLPSensor(SensorEntity):
                             _LOGGER.debug(data)
 
                             if data['ConsumptionData']:
-                                self._state_data_type = 'HOURLY'
+                                if i == 0 and (self._type == '' or self._type.upper() == 'HOURLY'):
+                                    for row in sorted(data['ConsumptionData'], key=lambda x: x['Startdate'], reverse=True):
+                                        if row['ValidateStatus'] == 'Y':
+                                            self._state_data_type = 'HOURLY'
+                                            self._attr_native_value = float(row['KWHTotal'])
+                                            self._attr_last_reset = datetime.datetime.strptime(row['Startdate'], '%Y%m%d%H%M%S')
+                                            break
 
-                                for row in data['ConsumptionData']:
-                                    if row['ValidateStatus'] == 'N':
-                                        break
+                                if self._get_hourly:
+                                    for row in data['ConsumptionData']:
+                                        if row['ValidateStatus'] == 'N':
+                                            continue
 
-                                    start = None
-                                    if row['Startdate']:
-                                        start = datetime.datetime.strptime(row['Startdate'], '%Y%m%d%H%M%S')
+                                        self._hourly.append({
+                                            'start': datetime.datetime.strptime(row['Startdate'], '%Y%m%d%H%M%S'),
+                                            'kwh': float(row['KWHTotal']),
+                                        })
 
-                                    self._hourly.append({
-                                        'start': start,
-                                        'kwh': row['KWHTotal'],
-                                    })
-
-                                self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=True)
-                                self._attr_native_value = self._hourly[0]['kwh']
-                                self._attr_last_reset = self._hourly[0]['start']
+                                    self._hourly = sorted(self._hourly, key=lambda x: x['start'], reverse=False)
 
             _LOGGER.debug("CLP END")
         except Exception as e:
