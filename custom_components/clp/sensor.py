@@ -27,11 +27,13 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
 
 from .const import (
     CONF_DOMAIN,
+    CONF_RETRY_DELAY,
 
     CONF_GET_ACCT,
     CONF_GET_BILL,
@@ -53,7 +55,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_USERNAME): cv.string,
     vol.Required(CONF_PASSWORD): cv.string,
     vol.Optional(CONF_TIMEOUT, default=30): cv.positive_int,
-
+    vol.Optional(CONF_RETRY_DELAY, default=300): cv.positive_int,
     vol.Optional(CONF_NAME, default='CLP'): cv.string,
     vol.Optional(CONF_TYPE, default=''): cv.string,
     vol.Optional(CONF_GET_ACCT, default=False): cv.boolean,
@@ -94,6 +96,7 @@ async def async_setup_platform(
                 csrf_token=csrf_token,
                 name=config.get(CONF_NAME),
                 timeout=config.get(CONF_TIMEOUT),
+                retry_delay=config.get(CONF_RETRY_DELAY),
                 type=config.get(CONF_TYPE),
                 get_acct=config.get(CONF_GET_ACCT),
                 get_bill=config.get(CONF_GET_BILL),
@@ -114,6 +117,7 @@ async def async_setup_platform(
                     csrf_token=csrf_token,
                     name=config.get(CONF_RES_NAME),
                     timeout=config.get(CONF_TIMEOUT),
+                    retry_delay=config.get(CONF_RETRY_DELAY),
                     type=config.get(CONF_RES_TYPE),
                     get_acct=False,
                     get_bill=config.get(CONF_RES_GET_BILL),
@@ -198,6 +202,7 @@ class CLPSensor(SensorEntity):
             csrf_token: str,
             name: str,
             timeout: int,
+            retry_delay: int,
             type: str,
             get_acct: bool,
             get_bill: bool,
@@ -211,6 +216,7 @@ class CLPSensor(SensorEntity):
         self._csrf_token = csrf_token
         self._name = name
         self._timeout = timeout
+        self._retry_delay = retry_delay
 
         self._type = type
         self._get_acct = get_acct
@@ -660,3 +666,4 @@ class CLPSensor(SensorEntity):
             _LOGGER.debug("CLP END")
         except Exception as e:
             _LOGGER.debug(e)
+            async_call_later(self.hass, self._retry_delay, self.schedule_update_ha_state)

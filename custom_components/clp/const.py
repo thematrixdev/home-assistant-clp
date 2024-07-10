@@ -1,5 +1,7 @@
 CONF_DOMAIN = 'CLP'
 
+CONF_RETRY_DELAY = 'retry_delay'
+
 CONF_GET_ACCT = 'get_account'
 CONF_GET_BILL = 'get_bill'
 CONF_GET_ESTIMATION = 'get_estimation'

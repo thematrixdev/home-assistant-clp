@@ -5,8 +5,8 @@
 ## Prerequisite
 
 - CLP Subscriber
-- CLP smart meter installed
 - CLP website credentials
+- CLP smart meter installed (for `HOURLY` usage data)
 
 ## Install
 
@@ -29,6 +29,7 @@ sensor:
   - platform: clp
     username: ''
     password: ''
+    type: 'HOURLY'
 ```
 
 | Key                                  | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
@@ -37,6 +38,7 @@ sensor:
 | `password`                           | string  | *        | Any string                                   | (N/A)                    | CLP account password                                                                |
 | `name`                               | string  |          | Any string                                   | `CLP`                    | Name of the sensor                                                                  |
 | `timeout`                            | int     |          | Any integer                                  | `30`                     | Connection timeout in second                                                        |
+| `retry_delay`                        | int     |          | Any integer                                  | `300`                    | Delay before retry in second                                                        |
 | `type`                               | string  |          | ` `<br/>`BIMONTHLY`<br/>`DAILY`<br/>`HOURLY` | ` `                      | Type of data to be shown in state<br/>If not specified, best accurate value is used |
 | `get_account`                        | boolean |          | `True`<br/>`False`                           | `False`                  | Get account summary                                                                 |
 | `get_bill`                           | boolean |          | `True`<br/>`False`                           | `False`                  | Get bills                                                                           |
@@ -49,6 +51,8 @@ sensor:
 | `renewable_energy_sensor_get_bill`   | boolean |          | `True`<br/>`False`                           | `False`                  | Get energy generation in bills                                                      |
 | `renewable_energy_sensor_get_daily`  | boolean |          | `True`<br/>`False`                           | `False`                  | Get daily energy generation                                                         |
 | `renewable_energy_sensor_get_hourly` | boolean |          | `True`<br/>`False`                           | `False`                  | Get hourly energy generation                                                        |
+
+- It is recommended to provide `type` and `renewable_energy_sensor_type` for data consistency
 
 ## Common problem
 
