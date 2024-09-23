@@ -85,15 +85,19 @@ async def async_setup_platform(
         discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     session = aiohttp_client.async_get_clientsession(hass)
-    csrf_token = await get_csrf_token(session, config.get(CONF_TIMEOUT))
-    await login(session, config.get(CONF_USERNAME), config.get(CONF_PASSWORD), csrf_token, config.get(CONF_TIMEOUT))
+
+    hass.data[DOMAIN] = {
+        'username': config.get(CONF_USERNAME),
+        'password': config.get(CONF_PASSWORD),
+        'session': session,
+    }
 
     async_add_entities(
         [
             CLPSensor(
                 sensor_type='main',
                 session=session,
-                csrf_token=csrf_token,
+                csrf_token=None,
                 name=config.get(CONF_NAME),
                 timeout=config.get(CONF_TIMEOUT),
                 retry_delay=config.get(CONF_RETRY_DELAY),
@@ -114,7 +118,7 @@ async def async_setup_platform(
                 CLPSensor(
                     sensor_type='renewable_energy',
                     session=session,
-                    csrf_token=csrf_token,
+                    csrf_token=None,
                     name=config.get(CONF_RES_NAME),
                     timeout=config.get(CONF_TIMEOUT),
                     retry_delay=config.get(CONF_RETRY_DELAY),
@@ -231,6 +235,7 @@ class CLPSensor(SensorEntity):
         self._attr_state_class = SensorStateClass.TOTAL
 
         self._state_data_type = None
+        self.error = None
 
     @property
     def state_class(self) -> SensorStateClass | str | None:
@@ -244,6 +249,7 @@ class CLPSensor(SensorEntity):
     def extra_state_attributes(self) -> dict:
         attr = {
             "state_data_type": self._state_data_type,
+            "error": None,
         }
 
         if hasattr(self, '_account'):
@@ -273,6 +279,15 @@ class CLPSensor(SensorEntity):
     async def async_update(self) -> None:
         try:
             dates = get_dates(self._timezone)
+
+            self._csrf_token = await get_csrf_token(self._session, self._timeout)
+            await login(
+                self._session,
+                self.hass.data[DOMAIN]['username'],  # Use stored username/password from hass.data
+                self.hass.data[DOMAIN]['password'],
+                self._csrf_token,
+                self._timeout
+            )
 
             if self._sensor_type == 'main':
                 if self._get_acct:
@@ -341,10 +356,12 @@ class CLPSensor(SensorEntity):
                             if self._type == '' or self._type.upper() == 'BIMONTHLY':
                                 self._state_data_type = 'BIMONTHLY'
                                 self._attr_native_value = data['results'][0]['TOT_KWH']
-                                self._attr_last_reset = datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S')
+                                self._attr_last_reset = datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'],
+                                                                                   '%Y%m%d%H%M%S')
                             if self._get_bill:
                                 self._billed = {
-                                    "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'], '%Y%m%d%H%M%S'),
+                                    "period": datetime.datetime.strptime(data['results'][0]['PERIOD_LABEL'],
+                                                                         '%Y%m%d%H%M%S'),
                                     "kwh": data['results'][0]['TOT_KWH'],
                                     "cost": data['results'][0]['TOT_COST'],
                                 }
@@ -398,7 +415,8 @@ class CLPSensor(SensorEntity):
                                 consumed_end = datetime.datetime.strptime(data['currentEndDate'], '%Y%m%d%H%M%S')
 
                             if data['projectedStartDate']:
-                                estimation_start = datetime.datetime.strptime(data['projectedStartDate'], '%Y%m%d%H%M%S')
+                                estimation_start = datetime.datetime.strptime(data['projectedStartDate'],
+                                                                              '%Y%m%d%H%M%S')
 
                             if data['projectedEndDate']:
                                 estimation_end = datetime.datetime.strptime(data['projectedEndDate'], '%Y%m%d%H%M%S')
@@ -452,7 +470,8 @@ class CLPSensor(SensorEntity):
                             if self._type == '' or self._type.upper() == 'DAILY':
                                 self._state_data_type = 'DAILY'
                                 self._attr_native_value = data['results'][-1]['KWH_TOTAL']
-                                self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
+                                self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'],
+                                                                                   '%Y%m%d%H%M%S')
 
                             if self._get_daily:
                                 self._daily = []
@@ -501,7 +520,8 @@ class CLPSensor(SensorEntity):
                             if self._type == '' or self._type.upper() == 'HOURLY':
                                 self._state_data_type = 'HOURLY'
                                 self._attr_native_value = data['results'][-1]['KWH_TOTAL']
-                                self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'], '%Y%m%d%H%M%S')
+                                self._attr_last_reset = datetime.datetime.strptime(data['results'][-1]['START_DT'],
+                                                                                   '%Y%m%d%H%M%S')
 
                             if self._get_hourly:
                                 self._hourly = []
@@ -547,7 +567,8 @@ class CLPSensor(SensorEntity):
                             if self._type == '' or self._type.upper() == 'BIMONTHLY':
                                 self._state_data_type = 'BIMONTHLY'
                                 self._attr_native_value = float(data['ConsumptionData'][-1]['KWHTotal'])
-                                self._attr_last_reset = datetime.datetime.strptime(data['ConsumptionData'][-1]['Enddate'], '%Y%m%d%H%M%S')
+                                self._attr_last_reset = datetime.datetime.strptime(
+                                    data['ConsumptionData'][-1]['Enddate'], '%Y%m%d%H%M%S')
 
                             if self._get_bill:
                                 self._bills = []
@@ -590,7 +611,8 @@ class CLPSensor(SensorEntity):
                                     if row['ValidateStatus'] == 'Y':
                                         self._state_data_type = 'DAILY'
                                         self._attr_native_value = float(row['KWHTotal'])
-                                        self._attr_last_reset = datetime.datetime.strptime(row['Startdate'], '%Y%m%d%H%M%S')
+                                        self._attr_last_reset = datetime.datetime.strptime(row['Startdate'],
+                                                                                           '%Y%m%d%H%M%S')
                                         break
 
                             if self._get_daily:
@@ -644,11 +666,13 @@ class CLPSensor(SensorEntity):
 
                             if data['ConsumptionData']:
                                 if i == 0 and (self._type == '' or self._type.upper() == 'HOURLY'):
-                                    for row in sorted(data['ConsumptionData'], key=lambda x: x['Startdate'], reverse=True):
+                                    for row in sorted(data['ConsumptionData'], key=lambda x: x['Startdate'],
+                                                      reverse=True):
                                         if row['ValidateStatus'] == 'Y':
                                             self._state_data_type = 'HOURLY'
                                             self._attr_native_value = float(row['KWHTotal'])
-                                            self._attr_last_reset = datetime.datetime.strptime(row['Startdate'], '%Y%m%d%H%M%S')
+                                            self._attr_last_reset = datetime.datetime.strptime(row['Startdate'],
+                                                                                               '%Y%m%d%H%M%S')
                                             break
 
                                 if self._get_hourly:
@@ -665,5 +689,7 @@ class CLPSensor(SensorEntity):
 
             _LOGGER.debug("CLP END")
         except Exception as e:
-            _LOGGER.debug(e)
-            async_call_later(self.hass, self._retry_delay, self.schedule_update_ha_state)
+            _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+            self._attr_native_value = None
+            self.error = e
+            async_call_later(self.hass, self._retry_delay, self.async_update)
