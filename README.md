@@ -22,14 +22,20 @@
 
 ## Configure in Home-Assistant
 
-### Minimal configuration in `configuration.yaml`
+### Minimal configuration
 
-```
-sensor:
+```yaml
+# configuration.yaml
+sensor: 
   - platform: clp
-    username: ''
-    password: ''
+    username: !secret clp_username
+    password: !secret clp_pw
     type: 'HOURLY'
+```
+```yaml
+# secrets.yaml
+clp_username: "YOUR_USERNAME"
+clp_pw: "YOUR_VERY_SECURE_PASSWORD"
 ```
 
 | Key                                  | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
