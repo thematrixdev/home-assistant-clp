@@ -62,8 +62,8 @@ clp_pw: "YOUR_VERY_SECURE_PASSWORD"
 
 ## Common problem
 
-- Single entity only. More than one `clp` entry will cause problems
-- For slower hardware device, `TIMEOUT` may happen. Increase `timeout` in `configuration.yaml`
+- More than one `clp` entry will cause issues. Avoid multiple entries.
+- Timeouts may occur on slower hardware. Increase `timeout` in `configuration.yaml` to mitigate.
 
 ## Debug
 
