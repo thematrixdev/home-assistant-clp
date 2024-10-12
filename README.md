@@ -1,7 +1,5 @@
 # CLP (HK) Statistic Home-Assistant Custom-Component
 
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://buymeacoffee.com/thematrixdev)
-
 ## Prerequisite
 
 - CLP Subscriber
@@ -101,8 +99,8 @@ clp_pw: "YOUR_VERY_SECURE_PASSWORD"
 
 ## Tested on
 
-- Ubuntu 24.04
-- Home Assistant Container 2024.7
+- Ubuntu 24.10
+- Home Assistant Container 2024.10
 
 ## Unofficial support
 
