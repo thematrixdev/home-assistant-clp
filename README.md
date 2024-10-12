@@ -20,18 +20,33 @@
 8. Click the `DOWNLOAD` button in the bottom right hand corner
 9. Restart Home-Assistant ***(You have to restart before proceeding)***
 
+## Obtain your encrypted password (Since October 2024)
+
+1. Go to CLP login page
+2. Choose "Login ID and Password" ("登入身份及密碼") as your login method
+3. Press F12 to open developer tools on your browser 
+4. (On developer tools) Go to `Network` tab
+5. (On developer tools) Check "Preserve log" ("保留記錄") and "Disable cache" ("禁用快取")
+6. (On developer tools) Select "Fetch/XHR" filter
+7. Enter your "CLP account number" and "Password" and click "Log in"
+8. (On developer tools) Find the request with the name `loginByPassword`
+9. (On developer tools) Click on the request
+10. (On developer tools) Go to `Payload` tab
+11. (On developer tools) Right-click on the `password` field, choose `Copy value`
+
 ## Configure in Home-Assistant
 
 ### Minimal configuration
 
 ```yaml
 # configuration.yaml
-sensor: 
+sensor:
   - platform: clp
     username: !secret clp_username
     password: !secret clp_pw
     type: 'HOURLY'
 ```
+
 ```yaml
 # secrets.yaml
 clp_username: "YOUR_USERNAME"
@@ -45,7 +60,7 @@ clp_pw: "YOUR_VERY_SECURE_PASSWORD"
 | `name`                               | string  |          | Any string                                   | `CLP`                    | Name of the sensor                                                                  |
 | `timeout`                            | int     |          | Any integer                                  | `30`                     | Connection timeout in second                                                        |
 | `retry_delay`                        | int     |          | Any integer                                  | `300`                    | Delay before retry in second                                                        |
-| `type`                               | string  |          | ` `<br/>`BIMONTHLY`<br/>`DAILY`<br/>`HOURLY` | ` `                      | Type of data to be shown in state<br/>If not specified, best accurate value is used |
+| `type`                               | string  |          | ` `<br/>`DAILY`<br/>`HOURLY`                 | ` `                      | Type of data to be shown in state<br/>If not specified, best accurate value is used |
 | `get_account`                        | boolean |          | `True`<br/>`False`                           | `False`                  | Get account summary                                                                 |
 | `get_bill`                           | boolean |          | `True`<br/>`False`                           | `False`                  | Get bills                                                                           |
 | `get_estimation`                     | boolean |          | `True`<br/>`False`                           | `False`                  | Get usage estimation                                                                |
