@@ -410,8 +410,8 @@ class CLPSensor(SensorEntity):
                 self._estimation = {
                     "current_consumption": float(data['data']['currentConsumption']),
                     "current_cost": float(data['data']['currentCost']),
-                    "current_end_date": datetime.datetime.strptime(data['data']['currentEndDate'], '%Y%m%d%H%M%S'),
-                    "current_start_date": datetime.datetime.strptime(data['data']['currentStartDate'], '%Y%m%d%H%M%S'),
+                    "current_end_date": datetime.datetime.strptime(data['data']['currentEndDate'], '%Y%m%d%H%M%S') if (data['data']['currentEndDate'] is not None and data['data']['currentEndDate'] != '') else None,
+                    "current_start_date": datetime.datetime.strptime(data['data']['currentStartDate'], '%Y%m%d%H%M%S') if (data['data']['currentStartDate'] is not None and data['data']['currentStartDate'] != '') else None,
                     "deviation_percent": float(data['data']['deviationPercent']),
                     "estimation_consumption": float(data['data']['projectedConsumption']),
                     "estimation_cost": float(data['data']['projectedCost']),
