@@ -18,20 +18,6 @@
 8. Click the `DOWNLOAD` button in the bottom right hand corner
 9. Restart Home-Assistant ***(You have to restart before proceeding)***
 
-## Obtain your encrypted password (Since October 2024)
-
-1. Go to CLP login page
-2. Choose "Login ID and Password" ("登入身份及密碼") as your login method
-3. Press F12 to open developer tools on your browser 
-4. (On developer tools) Go to `Network` tab
-5. (On developer tools) Check "Preserve log" ("保留記錄") and "Disable cache" ("禁用快取")
-6. (On developer tools) Select "Fetch/XHR" filter
-7. Enter your "CLP account number" and "Password" and click "Log in"
-8. (On developer tools) Find the request with the name `loginByPassword`
-9. (On developer tools) Click on the request
-10. (On developer tools) Go to `Payload` tab
-11. (On developer tools) Right-click on the `password` field, choose `Copy value`
-
 ## Configure in Home-Assistant
 
 ### Minimal configuration

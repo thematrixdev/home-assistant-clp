@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import datetime
 import logging
 
@@ -7,6 +8,9 @@ import async_timeout
 import homeassistant.helpers.config_validation as cv
 import pytz
 import voluptuous as vol
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from dateutil import relativedelta
 from homeassistant.components.lock import PLATFORM_SCHEMA
 from homeassistant.components.sensor import (
@@ -31,6 +35,8 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
 
 from .const import (
+    CONF_CLP_PUBLIC_KEY,
+
     CONF_DOMAIN,
     CONF_RETRY_DELAY,
 
@@ -85,9 +91,19 @@ async def async_setup_platform(
 ) -> None:
     session = aiohttp_client.async_get_clientsession(hass)
 
+    public_key = serialization.load_pem_public_key(CONF_CLP_PUBLIC_KEY.encode())
+    ciphertext = public_key.encrypt(
+        config.get(CONF_PASSWORD).encode('utf-8'),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None,
+        )
+    )
+
     hass.data[DOMAIN] = {
         'username': config.get(CONF_USERNAME),
-        'password': config.get(CONF_PASSWORD),
+        'password': base64.b64encode(ciphertext).decode(),
         'session': session,
     }
 
@@ -199,6 +215,7 @@ class CLPSensor(SensorEntity):
         self._sensor_type = sensor_type
 
         self._session = session
+        self._username = None
         self._access_token = None
         self._refresh_token = None
         self._access_token_expiry_time = None
@@ -271,16 +288,22 @@ class CLPSensor(SensorEntity):
         try:
             dates = get_dates(self._timezone)
 
-            if self._access_token is None or (self._access_token_expiry_time and datetime.datetime.now(
-                    datetime.timezone.utc) > datetime.datetime.strptime(self._access_token_expiry_time,
-                                                                        '%Y-%m-%dT%H:%M:%S.%fZ').replace(
-                    tzinfo=datetime.timezone.utc)):
+            if (
+                self._username is None
+                or self.hass.data[DOMAIN]['username'] != self._username
+                or self._access_token is None
+                or (
+                    self._access_token_expiry_time
+                    and datetime.datetime.now(datetime.timezone.utc) > datetime.datetime.strptime(self._access_token_expiry_time, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc)
+                )
+            ):
                 self._access_token, self._refresh_token, self._access_token_expiry_time = await login(
                     session=self._session,
                     username=self.hass.data[DOMAIN]['username'],
                     password=self.hass.data[DOMAIN]['password'],
                     timeout=self._timeout,
                 )
+                self._username = self.hass.data[DOMAIN]['username']
             else:
                 self._access_token, self._refresh_token, self._access_token_expiry_time = await refresh_token(
                     session=self._session,
@@ -333,10 +356,8 @@ class CLPSensor(SensorEntity):
                             bills = []
                             for row in data['data']['transactions']:
                                 bills.append({
-                                    'from_date': datetime.datetime.strptime(row['fromDate'], '%Y%m%d%H%M%S') if row[
-                                                                                                                    'fromDate'] != "" else None,
-                                    'to_date': datetime.datetime.strptime(row['toDate'], '%Y%m%d%H%M%S') if row[
-                                                                                                                'toDate'] != "" else None,
+                                    'from_date': datetime.datetime.strptime(row['fromDate'], '%Y%m%d%H%M%S') if row['fromDate'] != "" else None,
+                                    'to_date': datetime.datetime.strptime(row['toDate'], '%Y%m%d%H%M%S') if row['toDate'] != "" else None,
                                     'total': row['total'],
                                     'transaction_date': datetime.datetime.strptime(row['tranDate'], '%Y%m%d%H%M%S'),
                                     'type': row['type'],
@@ -349,8 +370,7 @@ class CLPSensor(SensorEntity):
                     async with async_timeout.timeout(self._timeout):
                         response = await self._session.request(
                             "GET",
-                            "https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/info?ca=" + self.hass.data[DOMAIN][
-                                'username'],
+                            "https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/info?ca=" + self.hass.data[DOMAIN]['username'],
                             headers={
                                 "Authorization": self._access_token,
                             },
@@ -481,8 +501,7 @@ class CLPSensor(SensorEntity):
                             if self._type == '' or self._type.upper() == 'BIMONTHLY':
                                 self._state_data_type = 'BIMONTHLY'
                                 self._attr_native_value = float(data['data']['consumptionData'][-1]['kwhtotal'])
-                                self._attr_last_reset = datetime.datetime.strptime(
-                                    data['data']['consumptionData'][-1]['enddate'], '%Y%m%d%H%M%S')
+                                self._attr_last_reset = datetime.datetime.strptime(data['data']['consumptionData'][-1]['enddate'], '%Y%m%d%H%M%S')
 
                             if self._get_bill:
                                 self._bills = []
@@ -515,13 +534,11 @@ class CLPSensor(SensorEntity):
 
                         if data['data']['consumptionData']:
                             if self._type == '' or self._type.upper() == 'DAILY':
-                                for row in sorted(data['data']['consumptionData'], key=lambda x: x['startdate'],
-                                                  reverse=True):
+                                for row in sorted(data['data']['consumptionData'], key=lambda x: x['startdate'], reverse=True):
                                     if row['validateStatus'] == 'Y':
                                         self._state_data_type = 'DAILY'
                                         self._attr_native_value = float(row['kwhtotal'])
-                                        self._attr_last_reset = datetime.datetime.strptime(row['startdate'],
-                                                                                           '%Y%m%d%H%M%S')
+                                        self._attr_last_reset = datetime.datetime.strptime(row['startdate'], '%Y%m%d%H%M%S')
                                         break
 
                             if self._get_daily:
@@ -569,13 +586,11 @@ class CLPSensor(SensorEntity):
 
                             if data['data']['consumptionData']:
                                 if i == 1 and (self._type == '' or self._type.upper() == 'HOURLY'):
-                                    for row in sorted(data['data']['consumptionData'], key=lambda x: x['startdate'],
-                                                      reverse=True):
+                                    for row in sorted(data['data']['consumptionData'], key=lambda x: x['startdate'], reverse=True):
                                         if row['validateStatus'] == 'Y':
                                             self._state_data_type = 'HOURLY'
                                             self._attr_native_value = float(row['kwhtotal'])
-                                            self._attr_last_reset = datetime.datetime.strptime(row['startdate'],
-                                                                                               '%Y%m%d%H%M%S')
+                                            self._attr_last_reset = datetime.datetime.strptime(row['startdate'], '%Y%m%d%H%M%S')
                                             break
 
                                 if self._get_hourly:
