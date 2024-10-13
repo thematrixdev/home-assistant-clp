@@ -294,6 +294,9 @@ class CLPSensor(SensorEntity):
             json: dict = None,
             params: dict = None
     ):
+        if json:
+            _LOGGER.debug(f"REQUEST {method} {headers} {url} {params} {json}")
+
         async with async_timeout.timeout(self._timeout):
             response = await self._session.request(
                 method,
@@ -315,7 +318,7 @@ class CLPSensor(SensorEntity):
                 raise e
 
             response_data = await response.json()
-            _LOGGER.debug(f"{response.status} {response.url} : {response_data}")
+            _LOGGER.debug(f"RESPONSE {response.status} {response.url} : {response_data}")
             return response_data
 
 
