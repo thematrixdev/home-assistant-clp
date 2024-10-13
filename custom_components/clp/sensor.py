@@ -366,17 +366,23 @@ class CLPSensor(SensorEntity):
             data = await response.json()
 
             if data['data']['transactions']:
-                bills = []
+                bills = {
+                    'bill': [],
+                    'payment': [],
+                }
                 for row in data['data']['transactions']:
-                    bills.append({
+                    if row['type'] != 'bill' and row['type'] != 'payment':
+                        continue
+
+                    bills[row['type']].append({
                         'from_date': datetime.datetime.strptime(row['fromDate'], '%Y%m%d%H%M%S') if row['fromDate'] != "" else None,
                         'to_date': datetime.datetime.strptime(row['toDate'], '%Y%m%d%H%M%S') if row['toDate'] != "" else None,
                         'total': float(row['total']),
                         'transaction_date': datetime.datetime.strptime(row['tranDate'], '%Y%m%d%H%M%S'),
-                        'type': row['type'],
-
                     })
-                self._bills = sorted(bills, key=lambda x: x['transaction_date'], reverse=True)
+                bills['bill'] = sorted(bills['bill'], key=lambda x: x['transaction_date'], reverse=True)
+                bills['payment'] = sorted(bills['payment'], key=lambda x: x['transaction_date'], reverse=True)
+                self._bills = bills
 
 
     @handle_errors
