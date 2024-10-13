@@ -592,7 +592,7 @@ class CLPSensor(SensorEntity):
             if self._get_bill:
                 bills = []
                 for row in response['data']['consumptionData']:
-                    self._bills.append({
+                    bills.append({
                         'start': datetime.datetime.strptime(row['startdate'], '%Y%m%d%H%M%S'),
                         'end': datetime.datetime.strptime(row['enddate'], '%Y%m%d%H%M%S'),
                         'kwh': float(row['kwhtotal']),
@@ -634,7 +634,7 @@ class CLPSensor(SensorEntity):
                     if row['startdate']:
                         start = datetime.datetime.strptime(row['startdate'], '%Y%m%d%H%M%S')
 
-                    self._daily.append({
+                    daily.append({
                         'start': start,
                         'kwh': float(row['kwhtotal']),
                     })
