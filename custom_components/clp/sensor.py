@@ -312,7 +312,7 @@ class CLPSensor(SensorEntity):
                 self._access_token_expiry_time = response['data']['expires_in']
                 self._username = self.hass.data[DOMAIN]['username']
         else:
-            async with async_timeout.timeout(self._refresh_token):
+            async with async_timeout.timeout(self._timeout):
                 response = await self._session.request(
                     "POST",
                     "https://clpapigee.eipprod.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
