@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import datetime
 import logging
@@ -43,6 +44,7 @@ from .const import (
     CONF_GET_ACCT,
     CONF_GET_BILL,
     CONF_GET_ESTIMATION,
+    CONF_GET_BIMONTHLY,
     CONF_GET_DAILY,
     CONF_GET_HOURLY,
 
@@ -66,6 +68,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_GET_ACCT, default=False): cv.boolean,
     vol.Optional(CONF_GET_BILL, default=False): cv.boolean,
     vol.Optional(CONF_GET_ESTIMATION, default=False): cv.boolean,
+    vol.Optional(CONF_GET_BIMONTHLY, default=False): cv.boolean,
     vol.Optional(CONF_GET_DAILY, default=False): cv.boolean,
     vol.Optional(CONF_GET_HOURLY, default=False): cv.boolean,
 
@@ -77,7 +80,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_RES_GET_HOURLY, default=False): cv.boolean,
 })
 
-MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=60)
+MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=600)
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
 
 DOMAIN = CONF_DOMAIN
@@ -119,6 +122,7 @@ async def async_setup_platform(
                 get_acct=config.get(CONF_GET_ACCT),
                 get_bill=config.get(CONF_GET_BILL),
                 get_estimation=config.get(CONF_GET_ESTIMATION),
+                get_bimonthly=config.get(CONF_GET_BIMONTHLY),
                 get_daily=config.get(CONF_GET_DAILY),
                 get_hourly=config.get(CONF_GET_HOURLY),
             ),
@@ -139,6 +143,7 @@ async def async_setup_platform(
                     get_acct=False,
                     get_bill=config.get(CONF_RES_GET_BILL),
                     get_estimation=False,
+                    get_bimonthly=False,
                     get_daily=config.get(CONF_RES_GET_DAILY),
                     get_hourly=config.get(CONF_RES_GET_HOURLY),
                 ),
@@ -160,6 +165,7 @@ def get_dates(timezone):
         "yesterday": datetime.datetime.now(timezone) + datetime.timedelta(days=-1),
         "today": datetime.datetime.now(timezone),
         "tomorrow": datetime.datetime.now(timezone) + datetime.timedelta(days=1),
+        "427_days_ago": (datetime.datetime.now(timezone) + relativedelta.relativedelta(days=-427)),
         "last_month": (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=-1)),
         "this_month": datetime.datetime.now(timezone).replace(day=1),
         "next_month": (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=1)),
@@ -209,6 +215,7 @@ class CLPSensor(SensorEntity):
             get_acct: bool,
             get_bill: bool,
             get_estimation: bool,
+            get_bimonthly: bool,
             get_daily: bool,
             get_hourly: bool,
     ) -> None:
@@ -228,6 +235,7 @@ class CLPSensor(SensorEntity):
         self._get_acct = get_acct
         self._get_bill = get_bill
         self._get_estimation = get_estimation
+        self._get_bimonthly = get_bimonthly
         self._get_daily = get_daily
         self._get_hourly = get_hourly
 
@@ -239,6 +247,7 @@ class CLPSensor(SensorEntity):
         self._account = None
         self._bills = None
         self._estimation = None
+        self._bimonthly = None
         self._daily = None
         self._hourly = None
 
@@ -263,17 +272,14 @@ class CLPSensor(SensorEntity):
         if hasattr(self, '_account'):
             attr["account"] = self._account
 
-        if hasattr(self, '_eco_points'):
-            attr["eco_points"] = self._eco_points
-
         if hasattr(self, '_bills'):
             attr["bills"] = self._bills
 
-        if hasattr(self, '_billed'):
-            attr["billed"] = self._billed
+        if hasattr(self, '_estimation'):
+            attr["estimation"] = self._estimation
 
-        if hasattr(self, '_unbilled'):
-            attr["unbilled"] = self._unbilled
+        if hasattr(self, '_bimonthly'):
+            attr["bimonthly"] = self._bimonthly
 
         if hasattr(self, '_daily'):
             attr["daily"] = self._daily
@@ -311,7 +317,25 @@ class CLPSensor(SensorEntity):
                     timeout=self._timeout,
                 )
 
-            if self._sensor_type == 'main':
+            await asyncio.sleep(0)
+        except Exception as e:
+            await self.hass.services.async_call(
+                'persistent_notification',
+                'create',
+                {
+                    'title': f'Error in {self._name} sensor',
+                    'message': str(e),
+                    'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                }
+            )
+
+            _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+            self._attr_native_value = None
+            self.error = e
+            async_call_later(self.hass, self._retry_delay, self.async_update)
+
+        if self._sensor_type == 'main':
+            try:
                 if self._get_acct:
                     _LOGGER.debug("CLP ACCOUNT")
                     async with async_timeout.timeout(self._timeout):
@@ -329,7 +353,24 @@ class CLPSensor(SensorEntity):
                             'outstanding': float(data['data'][0]['outstandingAmount']),
                         }
                         _LOGGER.debug(data)
+                        await asyncio.sleep(0)
+            except Exception as e:
+                await self.hass.services.async_call(
+                    'persistent_notification',
+                    'create',
+                    {
+                        'title': f'Error in {self._name} sensor',
+                        'message': str(e),
+                        'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                    }
+                )
 
+                _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+                self._attr_native_value = None
+                self.error = e
+                async_call_later(self.hass, self._retry_delay, self.async_update)
+
+            try:
                 if self._get_bill:
                     _LOGGER.debug("CLP BILL")
                     async with async_timeout.timeout(self._timeout):
@@ -358,28 +399,136 @@ class CLPSensor(SensorEntity):
                                 bills.append({
                                     'from_date': datetime.datetime.strptime(row['fromDate'], '%Y%m%d%H%M%S') if row['fromDate'] != "" else None,
                                     'to_date': datetime.datetime.strptime(row['toDate'], '%Y%m%d%H%M%S') if row['toDate'] != "" else None,
-                                    'total': row['total'],
+                                    'total': float(row['total']),
                                     'transaction_date': datetime.datetime.strptime(row['tranDate'], '%Y%m%d%H%M%S'),
                                     'type': row['type'],
 
                                 })
-                            self._bills = bills
+                            self._bills = sorted(bills, key=lambda x: x['transaction_date'], reverse=True)
 
+                    await asyncio.sleep(0)
+            except Exception as e:
+                await self.hass.services.async_call(
+                    'persistent_notification',
+                    'create',
+                    {
+                        'title': f'Error in {self._name} sensor',
+                        'message': str(e),
+                        'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                    }
+                )
+
+                _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+                self._attr_native_value = None
+                self.error = e
+                async_call_later(self.hass, self._retry_delay, self.async_update)
+
+            try:
                 if self._get_estimation:
                     _LOGGER.debug("CLP ESTIMATION")
                     async with async_timeout.timeout(self._timeout):
                         response = await self._session.request(
                             "GET",
-                            "https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/info?ca=" + self.hass.data[DOMAIN]['username'],
+                            "https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/info",
                             headers={
                                 "Authorization": self._access_token,
+                            },
+                            params={
+                                "ca": self.hass.data[DOMAIN]['username'],
                             },
                         )
                         response.raise_for_status()
                         data = await response.json()
-                        self._estimation = data['data']
+
+                        if data['data']:
+                            self._estimation = {
+                                "current_consumption": float(data['data']['currentConsumption']),
+                                "current_cost": float(data['data']['currentCost']),
+                                "current_end_date": datetime.datetime.strptime(data['data']['currentEndDate'], '%Y%m%d%H%M%S'),
+                                "current_start_date": datetime.datetime.strptime(data['data']['currentStartDate'], '%Y%m%d%H%M%S'),
+                                "deviation_percent": float(data['data']['deviationPercent']),
+                                "estimation_consumption": float(data['data']['projectedConsumption']),
+                                "estimation_cost": float(data['data']['projectedCost']),
+                                "estimation_end_date": datetime.datetime.strptime(data['data']['projectedEndDate'], '%Y%m%d%H%M%S'),
+                                "estimation_start_date": datetime.datetime.strptime(data['data']['projectedStartDate'], '%Y%m%d%H%M%S'),
+                            }
+
                         _LOGGER.debug(data)
 
+                    await asyncio.sleep(0)
+            except Exception as e:
+                await self.hass.services.async_call(
+                    'persistent_notification',
+                    'create',
+                    {
+                        'title': f'Error in {self._name} sensor',
+                        'message': str(e),
+                        'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                    }
+                )
+
+                _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+                self._attr_native_value = None
+                self.error = e
+                async_call_later(self.hass, self._retry_delay, self.async_update)
+
+            try:
+                if self._get_bimonthly or self._type == '' or self._type.upper() == 'BIMONTHLY':
+                    _LOGGER.debug("CLP BIMONTHLY")
+
+                    async with async_timeout.timeout(self._timeout):
+                        response = await self._session.request(
+                            "POST",
+                            "https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/history",
+                            headers={
+                                "Authorization": self._access_token,
+                            },
+                            json={
+                                "ca": self.hass.data[DOMAIN]['username'],
+                                "fromDate": dates["427_days_ago"].strftime('%Y%m%d000000'),
+                                "mode": "Bill",
+                                "toDate": dates["today"].strftime('%Y%m%d000000'),
+                                "type": "Unit",
+                            },
+                        )
+                        data = await response.json()
+                        response.raise_for_status()
+
+                        _LOGGER.debug(data)
+
+                        if data['data']:
+                            if self._type == '' or self._type.upper() == 'BIMONTHLY':
+                                self._state_data_type = 'BIMONTHLY'
+                                self._attr_native_value = data['data']['results'][0]['totKwh']
+                                self._attr_last_reset = datetime.datetime.strptime(data['data']['results'][0]['endabrpe'], '%Y%m%d')
+
+                            if self._get_bimonthly:
+                                bimonthly = []
+                                for row in data['data']['results']:
+                                    bimonthly.append({
+                                        'end': datetime.datetime.strptime(row['endabrpe'], '%Y%m%d'),
+                                        'kwh': row['totKwh'],
+                                    })
+                                self._bimonthly = sorted(bimonthly, key=lambda x: x['end'], reverse=True)
+
+                    await asyncio.sleep(0)
+            except Exception as e:
+                await self.hass.services.async_call(
+                    'persistent_notification',
+                    'create',
+                    {
+                        'title': f'Error in {self._name} sensor',
+                        'message': str(e),
+                        'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                    }
+                )
+
+                _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+                self._attr_native_value = None
+                self.error = e
+                async_call_later(self.hass, self._retry_delay, self.async_update)
+
+            try:
                 if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
                     _LOGGER.debug("CLP DAILY")
                     async with async_timeout.timeout(self._timeout):
@@ -410,7 +559,7 @@ class CLPSensor(SensorEntity):
                                     data['data']['results'][-1]['expireDate'], '%Y%m%d%H%M%S')
 
                             if self._get_daily:
-                                self._daily = []
+                                daily = []
                                 for row in data['data']['results']:
                                     start = None
                                     if row['startDate']:
@@ -420,19 +569,36 @@ class CLPSensor(SensorEntity):
                                     if row['expireDate']:
                                         end = datetime.datetime.strptime(row['expireDate'], '%Y%m%d%H%M%S')
 
-                                    self._daily.append({
+                                    daily.append({
                                         'start': start,
                                         'end': end,
                                         'kwh': row['kwhTotal'],
                                     })
+                                self._daily = sorted(daily, key=lambda x: x['start'], reverse=True)
 
+                    await asyncio.sleep(0)
+            except Exception as e:
+                await self.hass.services.async_call(
+                    'persistent_notification',
+                    'create',
+                    {
+                        'title': f'Error in {self._name} sensor',
+                        'message': str(e),
+                        'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                    }
+                )
+
+                _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+                self._attr_native_value = None
+                self.error = e
+                async_call_later(self.hass, self._retry_delay, self.async_update)
+
+            try:
                 if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
                     _LOGGER.debug("CLP HOURLY")
 
-                    if self._get_hourly:
-                        self._hourly = []
-
                     async with async_timeout.timeout(self._timeout):
+                        hourly = []
                         for i in range(2):
                             if i == 0:
                                 from_date = dates["yesterday"]
@@ -441,42 +607,63 @@ class CLPSensor(SensorEntity):
                                 from_date = dates["today"]
                                 to_date = dates["tomorrow"]
 
-                        response = await self._session.request(
-                            "POST",
-                            "https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/history",
-                            headers={
-                                "Authorization": self._access_token,
-                            },
-                            json={
-                                "ca": self.hass.data[DOMAIN]['username'],
-                                "fromDate": from_date.strftime("%Y%m%d000000"),
-                                "mode": "Hourly",
-                                "toDate": to_date.strftime("%Y%m%d000000"),
-                                "type": "Unit",
-                            },
-                        )
-                        response.raise_for_status()
-                        data = await response.json()
+                            response = await self._session.request(
+                                "POST",
+                                "https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/history",
+                                headers={
+                                    "Authorization": self._access_token,
+                                },
+                                json={
+                                    "ca": self.hass.data[DOMAIN]['username'],
+                                    "fromDate": from_date.strftime("%Y%m%d000000"),
+                                    "mode": "Hourly",
+                                    "toDate": to_date.strftime("%Y%m%d000000"),
+                                    "type": "Unit",
+                                },
+                            )
+                            response.raise_for_status()
+                            data = await response.json()
 
-                        _LOGGER.debug(data)
+                            _LOGGER.debug(data)
 
-                        if data['data']['results']:
-                            if i == 1 and (self._type == '' or self._type.upper() == 'HOURLY'):
-                                self._state_data_type = 'HOURLY'
-                                self._attr_native_value = data['data']['results'][-1]['kwhTotal']
-                                self._attr_last_reset = datetime.datetime.strptime(
-                                    data['data']['results'][-1]['expireDate'], '%Y%m%d%H%M%S')
+                            if data['data']['results']:
+                                if i == 1 and (self._type == '' or self._type.upper() == 'HOURLY'):
+                                    self._state_data_type = 'HOURLY'
+                                    self._attr_native_value = data['data']['results'][-1]['kwhTotal']
+                                    self._attr_last_reset = datetime.datetime.strptime(
+                                        data['data']['results'][-1]['expireDate'], '%Y%m%d%H%M%S')
 
-                            if self._get_hourly:
-                                for row in data['data']['results']:
-                                    self._hourly.append({
-                                        'start': datetime.datetime.strptime(row['startDate'], '%Y%m%d%H%M%S'),
-                                        'kwh': row['kwhTotal'],
-                                    })
+                                if self._get_hourly:
+                                    for row in data['data']['results']:
+                                        hourly.append({
+                                            'start': datetime.datetime.strptime(row['startDate'], '%Y%m%d%H%M%S'),
+                                            'kwh': row['kwhTotal'],
+                                        })
 
-            elif self._sensor_type == 'renewable_energy':
-                _LOGGER.debug("CLP Renewable-Energy")
+                            await asyncio.sleep(0)
 
+                        if self._get_hourly:
+                            self._hourly = sorted(hourly, key=lambda x: x['start'], reverse=True)
+            except Exception as e:
+                await self.hass.services.async_call(
+                    'persistent_notification',
+                    'create',
+                    {
+                        'title': f'Error in {self._name} sensor',
+                        'message': str(e),
+                        'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                    }
+                )
+
+                _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+                self._attr_native_value = None
+                self.error = e
+                async_call_later(self.hass, self._retry_delay, self.async_update)
+
+        elif self._sensor_type == 'renewable_energy':
+            _LOGGER.debug("CLP Renewable-Energy")
+
+            try:
                 if self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY':
                     _LOGGER.debug("CLP BILL")
                     async with async_timeout.timeout(self._timeout):
@@ -504,14 +691,33 @@ class CLPSensor(SensorEntity):
                                 self._attr_last_reset = datetime.datetime.strptime(data['data']['consumptionData'][-1]['enddate'], '%Y%m%d%H%M%S')
 
                             if self._get_bill:
-                                self._bills = []
+                                bills = []
                                 for row in data['data']['consumptionData']:
                                     self._bills.append({
                                         'start': datetime.datetime.strptime(row['startdate'], '%Y%m%d%H%M%S'),
                                         'end': datetime.datetime.strptime(row['enddate'], '%Y%m%d%H%M%S'),
                                         'kwh': float(row['kwhtotal']),
                                     })
+                                self._bills = sorted(bills, key=lambda x: x['start'], reverse=True)
 
+                    await asyncio.sleep(0)
+            except Exception as e:
+                await self.hass.services.async_call(
+                    'persistent_notification',
+                    'create',
+                    {
+                        'title': f'Error in {self._name} sensor',
+                        'message': str(e),
+                        'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                    }
+                )
+
+                _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+                self._attr_native_value = None
+                self.error = e
+                async_call_later(self.hass, self._retry_delay, self.async_update)
+
+            try:
                 if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
                     _LOGGER.debug("CLP DAILY")
                     async with async_timeout.timeout(self._timeout):
@@ -542,7 +748,7 @@ class CLPSensor(SensorEntity):
                                         break
 
                             if self._get_daily:
-                                self._daily = []
+                                daily = []
 
                                 for row in data['data']['consumptionData']:
                                     start = None
@@ -554,13 +760,31 @@ class CLPSensor(SensorEntity):
                                         'kwh': float(row['kwhtotal']),
                                     })
 
+                                self._daily = sorted(daily, key=lambda x: x['start'], reverse=True)
+
+                    await asyncio.sleep(0)
+            except Exception as e:
+                await self.hass.services.async_call(
+                    'persistent_notification',
+                    'create',
+                    {
+                        'title': f'Error in {self._name} sensor',
+                        'message': str(e),
+                        'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                    }
+                )
+
+                _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+                self._attr_native_value = None
+                self.error = e
+                async_call_later(self.hass, self._retry_delay, self.async_update)
+
+            try:
                 if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
                     _LOGGER.debug("CLP HOURLY")
 
-                    if self._get_hourly:
-                        self._hourly = []
-
                     async with async_timeout.timeout(self._timeout):
+                        hourly = []
                         for i in range(2):
                             if i == 0:
                                 start = dates["yesterday"].strftime("%m/%d/%Y")
@@ -598,24 +822,29 @@ class CLPSensor(SensorEntity):
                                         if row['validateStatus'] == 'N':
                                             continue
 
-                                        self._hourly.append({
+                                        hourly.append({
                                             'start': datetime.datetime.strptime(row['startdate'], '%Y%m%d%H%M%S'),
                                             'kwh': float(row['kwhtotal']),
                                         })
 
-            _LOGGER.debug("CLP END")
-        except Exception as e:
-            await self.hass.services.async_call(
-                'persistent_notification',
-                'create',
-                {
-                    'title': f'Error in {self._name} sensor',
-                    'message': str(e),
-                    'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
-                }
-            )
+                            await asyncio.sleep(0)
 
-            _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
-            self._attr_native_value = None
-            self.error = e
-            async_call_later(self.hass, self._retry_delay, self.async_update)
+                        if self._get_hourly:
+                            self._hourly = sorted(hourly, key=lambda x: x['start'], reverse=True)
+            except Exception as e:
+                await self.hass.services.async_call(
+                    'persistent_notification',
+                    'create',
+                    {
+                        'title': f'Error in {self._name} sensor',
+                        'message': str(e),
+                        'notification_id': f'clp_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
+                    }
+                )
+
+                _LOGGER.error(f"Error updating sensor {self._name}: {e}", exc_info=True)
+                self._attr_native_value = None
+                self.error = e
+                async_call_later(self.hass, self._retry_delay, self.async_update)
+
+        _LOGGER.debug("CLP END")
