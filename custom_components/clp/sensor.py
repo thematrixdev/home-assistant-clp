@@ -374,12 +374,17 @@ class CLPSensor(SensorEntity):
                     if row['type'] != 'bill' and row['type'] != 'payment':
                         continue
 
-                    bills[row['type']].append({
-                        'from_date': datetime.datetime.strptime(row['fromDate'], '%Y%m%d%H%M%S') if row['fromDate'] != "" else None,
-                        'to_date': datetime.datetime.strptime(row['toDate'], '%Y%m%d%H%M%S') if row['toDate'] != "" else None,
+                    record = {
                         'total': float(row['total']),
                         'transaction_date': datetime.datetime.strptime(row['tranDate'], '%Y%m%d%H%M%S'),
-                    })
+                    }
+
+                    if row['type'] == 'bill':
+                        record['from_date'] = datetime.datetime.strptime(row['fromDate'], '%Y%m%d%H%M%S')
+                        record['to_date'] = datetime.datetime.strptime(row['toDate'], '%Y%m%d%H%M%S')
+
+                    bills[row['type']].append(record)
+
                 bills['bill'] = sorted(bills['bill'], key=lambda x: x['transaction_date'], reverse=True)
                 bills['payment'] = sorted(bills['payment'], key=lambda x: x['transaction_date'], reverse=True)
                 self._bills = bills
