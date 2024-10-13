@@ -3,8 +3,8 @@ from __future__ import annotations
 import base64
 import datetime
 import logging
-from crypt import methods
 
+import aiohttp
 import async_timeout
 import homeassistant.helpers.config_validation as cv
 import pytz
