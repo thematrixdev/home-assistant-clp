@@ -37,26 +37,28 @@ clp_username: "YOUR_USERNAME_OR_ACCOUNT_NUMBER"
 clp_pw: "YOUR_VERY_SECURE_PASSWORD"
 ```
 
-| Key                                  | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
-|--------------------------------------|---------|----------|----------------------------------------------|--------------------------|-------------------------------------------------------------------------------------|
-| `username`                           | string  | *        | Any string                                   | (N/A)                    | CLP username or account number                                                      |
-| `password`                           | string  | *        | Any string                                   | (N/A)                    | CLP account password                                                                |
-| `name`                               | string  |          | Any string                                   | `CLP`                    | Name of the sensor                                                                  |
-| `timeout`                            | int     |          | Any integer                                  | `30`                     | Connection timeout in second                                                        |
-| `retry_delay`                        | int     |          | Any integer                                  | `300`                    | Delay before retry in second                                                        |
-| `type`                               | string  |          | ` `<br/>`BIMONTHLY`<br/>`DAILY`<br/>`HOURLY` | ` `                      | Type of data to be shown in state<br/>If not specified, best accurate value is used |
-| `get_account`                        | boolean |          | `True`<br/>`False`                           | `False`                  | Get account summary                                                                 |
-| `get_bill`                           | boolean |          | `True`<br/>`False`                           | `False`                  | Get bills                                                                           |
-| `get_estimation`                     | boolean |          | `True`<br/>`False`                           | `False`                  | Get usage estimation                                                                |
-| `get_bimonthly`                      | boolean |          | `True`<br/>`False`                           | `False`                  | Get bi-monthly usage                                                                |
-| `get_daily`                          | boolean |          | `True`<br/>`False`                           | `False`                  | Get daily usage                                                                     |
-| `get_hourly`                         | boolean |          | `True`<br/>`False`                           | `False`                  | Get hourly usage                                                                    |
-| `renewable_energy_sensor_enable`     | boolean |          | `True`<br/>`False`                           | `False`                  | Enable renewable energy sensor                                                      |
-| `renewable_energy_sensor_name`       | string  |          | `True`<br/>`False`                           | `'CLP Renewable Energy'` | Name of the renewable energy sensor                                                 |
-| `renewable_energy_sensor_type`       | string  |          | ` `<br/>`BIMONTHLY`<br/>`DAILY`<br/>`HOURLY` | ` `                      | Type of data to be shown in state<br/>If not specified, best accurate value is used |
-| `renewable_energy_sensor_get_bill`   | boolean |          | `True`<br/>`False`                           | `False`                  | Get energy generation in bills                                                      |
-| `renewable_energy_sensor_get_daily`  | boolean |          | `True`<br/>`False`                           | `False`                  | Get daily energy generation                                                         |
-| `renewable_energy_sensor_get_hourly` | boolean |          | `True`<br/>`False`                           | `False`                  | Get hourly energy generation                                                        |
+| Key                                       | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
+|-------------------------------------------|---------|----------|----------------------------------------------|--------------------------|-------------------------------------------------------------------------------------|
+| `username`                                | string  | *        | Any string                                   | (N/A)                    | CLP username or account number                                                      |
+| `password`                                | string  | *        | Any string                                   | (N/A)                    | CLP account password                                                                |
+| `name`                                    | string  |          | Any string                                   | `CLP`                    | Name of the sensor                                                                  |
+| `timeout`                                 | int     |          | Any integer                                  | `30`                     | Connection timeout in second                                                        |
+| `retry_delay`                             | int     |          | Any integer                                  | `300`                    | Delay before retry in second                                                        |
+| `type`                                    | string  |          | ` `<br/>`BIMONTHLY`<br/>`DAILY`<br/>`HOURLY` | ` `                      | Type of data to be shown in state<br/>If not specified, best accurate value is used |
+| `get_account`                             | boolean |          | `True`<br/>`False`                           | `False`                  | Get account summary                                                                 |
+| `get_bill`                                | boolean |          | `True`<br/>`False`                           | `False`                  | Get bills                                                                           |
+| `get_estimation`                          | boolean |          | `True`<br/>`False`                           | `False`                  | Get usage estimation                                                                |
+| `get_bimonthly`                           | boolean |          | `True`<br/>`False`                           | `False`                  | Get bi-monthly usage                                                                |
+| `get_daily`                               | boolean |          | `True`<br/>`False`                           | `False`                  | Get daily usage                                                                     |
+| `get_hourly`                              | boolean |          | `True`<br/>`False`                           | `False`                  | Get hourly usage                                                                    |
+| `get_hourly_days`                         | int     |          | Any integer                                  | `1`                      | Number of days to get hourly data                                                   |
+| `renewable_energy_sensor_enable`          | boolean |          | `True`<br/>`False`                           | `False`                  | Enable renewable energy sensor                                                      |
+| `renewable_energy_sensor_name`            | string  |          | `True`<br/>`False`                           | `'CLP Renewable Energy'` | Name of the renewable energy sensor                                                 |
+| `renewable_energy_sensor_type`            | string  |          | ` `<br/>`BIMONTHLY`<br/>`DAILY`<br/>`HOURLY` | ` `                      | Type of data to be shown in state<br/>If not specified, best accurate value is used |
+| `renewable_energy_sensor_get_bill`        | boolean |          | `True`<br/>`False`                           | `False`                  | Get energy generation in bills                                                      |
+| `renewable_energy_sensor_get_daily`       | boolean |          | `True`<br/>`False`                           | `False`                  | Get daily energy generation                                                         |
+| `renewable_energy_sensor_get_hourly`      | boolean |          | `True`<br/>`False`                           | `False`                  | Get hourly energy generation                                                        |
+| `renewable_energy_sensor_get_hourly_days` | int     |          | Any integer                                  | `1`                      | Number of days to get hourly data                                                   |
 
 - It is recommended to provide `type` and `renewable_energy_sensor_type` for data consistency
 

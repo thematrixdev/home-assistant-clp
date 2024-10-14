@@ -47,6 +47,7 @@ from .const import (
     CONF_GET_BIMONTHLY,
     CONF_GET_DAILY,
     CONF_GET_HOURLY,
+    CONF_GET_HOURLY_DAYS,
 
     CONF_RES_ENABLE,
     CONF_RES_NAME,
@@ -54,6 +55,7 @@ from .const import (
     CONF_RES_GET_BILL,
     CONF_RES_GET_DAILY,
     CONF_RES_GET_HOURLY,
+    CONF_RES_GET_HOURLY_DAYS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_GET_BIMONTHLY, default=False): cv.boolean,
     vol.Optional(CONF_GET_DAILY, default=False): cv.boolean,
     vol.Optional(CONF_GET_HOURLY, default=False): cv.boolean,
+    vol.Optional(CONF_GET_HOURLY_DAYS, default=1): cv.positive_int,
 
     vol.Optional(CONF_RES_ENABLE, default=False): cv.boolean,
     vol.Optional(CONF_RES_NAME, default='CLP Renewable Energy'): cv.string,
@@ -78,6 +81,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_RES_GET_BILL, default=False): cv.boolean,
     vol.Optional(CONF_RES_GET_DAILY, default=False): cv.boolean,
     vol.Optional(CONF_RES_GET_HOURLY, default=False): cv.boolean,
+    vol.Optional(CONF_RES_GET_HOURLY_DAYS, default=1): cv.positive_int,
 })
 
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=600)
@@ -125,6 +129,7 @@ async def async_setup_platform(
                 get_bimonthly=config.get(CONF_GET_BIMONTHLY),
                 get_daily=config.get(CONF_GET_DAILY),
                 get_hourly=config.get(CONF_GET_HOURLY),
+                get_hourly_days=config.get(CONF_GET_HOURLY_DAYS),
             ),
         ],
         update_before_add=True,
@@ -146,6 +151,7 @@ async def async_setup_platform(
                     get_bimonthly=False,
                     get_daily=config.get(CONF_RES_GET_DAILY),
                     get_hourly=config.get(CONF_RES_GET_HOURLY),
+                    get_hourly_days=config.get(CONF_RES_GET_HOURLY_DAYS),
                 ),
             ],
             update_before_add=True,
@@ -214,6 +220,7 @@ class CLPSensor(SensorEntity):
             get_bimonthly: bool,
             get_daily: bool,
             get_hourly: bool,
+            get_hourly_days: int,
     ) -> None:
         self._sensor_type = sensor_type
 
@@ -235,6 +242,7 @@ class CLPSensor(SensorEntity):
         self._get_bimonthly = get_bimonthly
         self._get_daily = get_daily
         self._get_hourly = get_hourly
+        self._get_hourly_days = get_hourly_days
 
         self._attr_device_class = SensorDeviceClass.ENERGY
         self._attr_native_value = None
@@ -526,16 +534,10 @@ class CLPSensor(SensorEntity):
 
     @handle_errors
     async def main_get_hourly(self):
-        dates = get_dates(self._timezone)
-
         hourly = []
-        for i in range(2):
-            if i == 0:
-                from_date = dates["yesterday"]
-                to_date = dates["today"]
-            else:
-                from_date = dates["today"]
-                to_date = dates["tomorrow"]
+        for i in range(1, self._get_hourly_days + 1):
+            from_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(self._get_hourly_days - i))
+            to_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(self._get_hourly_days - i - 1))
 
             response = await self.api_request(
                 method="POST",
@@ -553,7 +555,7 @@ class CLPSensor(SensorEntity):
             )
 
             if response['data']['results']:
-                if i == 1 and (self._type == '' or self._type.upper() == 'HOURLY'):
+                if i == self._get_hourly_days and (self._type == '' or self._type.upper() == 'HOURLY'):
                     self._state_data_type = 'HOURLY'
                     self._attr_native_value = response['data']['results'][-1]['kwhTotal']
                     self._attr_last_reset = datetime.datetime.strptime(
@@ -648,14 +650,9 @@ class CLPSensor(SensorEntity):
 
     @handle_errors
     async def renewable_get_hourly(self):
-        dates = get_dates(self._timezone)
-
         hourly = []
-        for i in range(2):
-            if i == 0:
-                start = dates["yesterday"].strftime("%m/%d/%Y")
-            else:
-                start = dates["today"].strftime("%m/%d/%Y")
+        for i in range(1, self._get_hourly_days + 1):
+            start_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(self._get_hourly_days - i))
 
             response = await self.api_request(
                 method="POST",
@@ -666,7 +663,7 @@ class CLPSensor(SensorEntity):
                 json={
                     "caNo": self._account_number,
                     "mode": "H",
-                    "startDate": start,
+                    "startDate": start_date.strftime("%m/%d/%Y"),
                 },
             )
 
