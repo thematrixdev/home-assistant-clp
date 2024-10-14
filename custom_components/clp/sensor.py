@@ -84,7 +84,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_RES_GET_HOURLY_DAYS, default=1): cv.positive_int,
 })
 
-MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=600)
+MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=300)
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
 
 DOMAIN = CONF_DOMAIN
@@ -257,6 +257,11 @@ class CLPSensor(SensorEntity):
         self._hourly = None
 
         self._state_data_type = None
+        self._daily_task_interval = datetime.timedelta(hours=12)
+        self._hourly_task_interval = datetime.timedelta(minutes=60)
+        self._single_task_last_fetch_time = None
+        self._hourly_task_last_fetch_time = None
+        self._daily_task_last_fetch_time = None
         self.error = None
 
     @property
@@ -350,7 +355,7 @@ class CLPSensor(SensorEntity):
                 or self._access_token is None
                 or (
                 self._access_token_expiry_time
-                and datetime.datetime.now(datetime.timezone.utc) > datetime.datetime.strptime(self._access_token_expiry_time, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc)
+                and datetime.datetime.now(datetime.timezone.utc) > self._access_token_expiry_time
         )
         ):
             response = await self.api_request(
@@ -368,7 +373,8 @@ class CLPSensor(SensorEntity):
             self._username = self.hass.data[DOMAIN]['username']
             self._access_token = response['data']['access_token']
             self._refresh_token = response['data']['refresh_token']
-            self._access_token_expiry_time = response['data']['expires_in']
+            self._access_token_expiry_time = datetime.datetime.strptime(response['data']['expires_in'], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc)
+
         else:
             response = await self.api_request(
                 method="POST",
@@ -379,7 +385,7 @@ class CLPSensor(SensorEntity):
             )
             self._access_token = response['data']['access_token']
             self._refresh_token = response['data']['refresh_token']
-            self._access_token_expiry_time = response['data']['expires_in']
+            self._access_token_expiry_time = datetime.datetime.strptime(response['data']['expires_in'], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc)
 
 
     @handle_errors
@@ -396,6 +402,7 @@ class CLPSensor(SensorEntity):
             'number': response['data'][0]['caNo'],
             'outstanding': float(response['data'][0]['outstandingAmount']),
         }
+        self._single_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
 
     @handle_errors
@@ -438,6 +445,7 @@ class CLPSensor(SensorEntity):
             bills['bill'] = sorted(bills['bill'], key=lambda x: x['transaction_date'], reverse=True)
             bills['payment'] = sorted(bills['payment'], key=lambda x: x['transaction_date'], reverse=True)
             self._bills = bills
+            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
 
     @handle_errors
@@ -465,6 +473,7 @@ class CLPSensor(SensorEntity):
                 "estimation_end_date": datetime.datetime.strptime(response['data']['projectedEndDate'], '%Y%m%d%H%M%S') if (response['data']['projectedEndDate'] is not None and response['data']['projectedEndDate'] != '') else None,
                 "estimation_start_date": datetime.datetime.strptime(response['data']['projectedStartDate'], '%Y%m%d%H%M%S') if (response['data']['projectedStartDate'] is not None and response['data']['projectedStartDate'] != '') else None,
             }
+            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
 
     @handle_errors
@@ -500,6 +509,8 @@ class CLPSensor(SensorEntity):
                         'kwh': row['totKwh'],
                     })
                 self._bimonthly = sorted(bimonthly, key=lambda x: x['end'], reverse=True)
+
+            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
 
     @handle_errors
@@ -546,6 +557,8 @@ class CLPSensor(SensorEntity):
                     })
                 self._daily = sorted(daily, key=lambda x: x['start'], reverse=True)
 
+            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
+
 
     @handle_errors
     async def main_get_hourly(self):
@@ -583,6 +596,8 @@ class CLPSensor(SensorEntity):
                             'kwh': row['kwhTotal'],
                         })
 
+                self._hourly_task_last_fetch_time = datetime.datetime.now(self._timezone)
+
         if self._get_hourly:
             self._hourly = sorted(hourly, key=lambda x: x['start'], reverse=True)
 
@@ -619,6 +634,8 @@ class CLPSensor(SensorEntity):
                         'kwh': float(row['kwhtotal']),
                     })
                 self._bills = sorted(bills, key=lambda x: x['start'], reverse=True)
+
+            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
 
     @handle_errors
@@ -662,6 +679,8 @@ class CLPSensor(SensorEntity):
 
                 self._daily = sorted(daily, key=lambda x: x['start'], reverse=True)
 
+            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
+
 
     @handle_errors
     async def renewable_get_hourly(self):
@@ -701,6 +720,8 @@ class CLPSensor(SensorEntity):
                             'kwh': float(row['kwhtotal']),
                         })
 
+                self._hourly_task_last_fetch_time = datetime.datetime.now(self._timezone)
+
         if self._get_hourly:
             self._hourly = sorted(hourly, key=lambda x: x['start'], reverse=True)
 
@@ -710,30 +731,30 @@ class CLPSensor(SensorEntity):
         await self.auth()
 
         if self._sensor_type == 'main':
-            if not self._account_number or self._get_acct:
+            if (not self._single_task_last_fetch_time) and (not self._account_number or self._get_acct):
                 await self.main_get_account_detail()
 
-            if self._get_bill:
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and self._get_bill:
                 await self.main_get_bill()
 
-            if self._get_estimation:
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and self._get_estimation:
                 await self.main_get_estimation()
 
-            if self._get_bimonthly or self._type == '' or self._type.upper() == 'BIMONTHLY':
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and (self._get_bimonthly or self._type == '' or self._type.upper() == 'BIMONTHLY'):
                 await self.main_get_bimonthly()
 
-            if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and (self._get_daily or self._type == '' or self._type.upper() == 'DAILY'):
                 await self.main_get_daily()
 
-            if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
+            if (not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + self._hourly_task_interval) and (self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY'):
                 await self.main_get_hourly()
 
         elif self._sensor_type == 'renewable_energy':
-            if self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY':
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and (self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY'):
                 await self.renewable_get_bimonthly()
 
-            if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and (self._get_daily or self._type == '' or self._type.upper() == 'DAILY'):
                 await self.renewable_get_daily()
 
-            if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
+            if (not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + self._hourly_task_interval) and (self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY'):
                 await self.renewable_get_hourly()
