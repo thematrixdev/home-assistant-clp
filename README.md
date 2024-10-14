@@ -51,14 +51,14 @@ clp_pw: "YOUR_VERY_SECURE_PASSWORD"
 | `get_bimonthly`                           | boolean |          | `True`<br/>`False`                           | `False`                  | Get bi-monthly usage                                                                |
 | `get_daily`                               | boolean |          | `True`<br/>`False`                           | `False`                  | Get daily usage                                                                     |
 | `get_hourly`                              | boolean |          | `True`<br/>`False`                           | `False`                  | Get hourly usage                                                                    |
-| `get_hourly_days`                         | int     |          | Any integer                                  | `1`                      | Number of days to get hourly data                                                   |
+| `get_hourly_days`                         | int     |          | `1` or `2`                                   | `1`                      | Number of days to get hourly data                                                   |
 | `renewable_energy_sensor_enable`          | boolean |          | `True`<br/>`False`                           | `False`                  | Enable renewable energy sensor                                                      |
 | `renewable_energy_sensor_name`            | string  |          | `True`<br/>`False`                           | `'CLP Renewable Energy'` | Name of the renewable energy sensor                                                 |
 | `renewable_energy_sensor_type`            | string  |          | ` `<br/>`BIMONTHLY`<br/>`DAILY`<br/>`HOURLY` | ` `                      | Type of data to be shown in state<br/>If not specified, best accurate value is used |
 | `renewable_energy_sensor_get_bill`        | boolean |          | `True`<br/>`False`                           | `False`                  | Get energy generation in bills                                                      |
 | `renewable_energy_sensor_get_daily`       | boolean |          | `True`<br/>`False`                           | `False`                  | Get daily energy generation                                                         |
 | `renewable_energy_sensor_get_hourly`      | boolean |          | `True`<br/>`False`                           | `False`                  | Get hourly energy generation                                                        |
-| `renewable_energy_sensor_get_hourly_days` | int     |          | Any integer                                  | `1`                      | Number of days to get hourly data                                                   |
+| `renewable_energy_sensor_get_hourly_days` | int     |          | `1` or `2`                                   | `1`                      | Number of days to get hourly data                                                   |
 
 - It is recommended to provide `type` and `renewable_energy_sensor_type` for data consistency
 
@@ -94,11 +94,11 @@ logger:
 
 - Open an issue on GitHub
 - Specify:
-  - What's wrong
-  - Home Assistant version
-  - CLP custom-integration version
-  - Configuration (without sensitive data)
-  - Logs
+    - What's wrong
+    - Home Assistant version
+    - CLP custom-integration version
+    - Configuration (without sensitive data)
+    - Logs
 
 ## Unofficial support
 

@@ -73,7 +73,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_GET_BIMONTHLY, default=False): cv.boolean,
     vol.Optional(CONF_GET_DAILY, default=False): cv.boolean,
     vol.Optional(CONF_GET_HOURLY, default=False): cv.boolean,
-    vol.Optional(CONF_GET_HOURLY_DAYS, default=1): cv.positive_int,
+    vol.Optional(CONF_GET_HOURLY_DAYS, default=1): vol.Clamp(min=1, max=2),
 
     vol.Optional(CONF_RES_ENABLE, default=False): cv.boolean,
     vol.Optional(CONF_RES_NAME, default='CLP Renewable Energy'): cv.string,
@@ -81,7 +81,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_RES_GET_BILL, default=False): cv.boolean,
     vol.Optional(CONF_RES_GET_DAILY, default=False): cv.boolean,
     vol.Optional(CONF_RES_GET_HOURLY, default=False): cv.boolean,
-    vol.Optional(CONF_RES_GET_HOURLY_DAYS, default=1): cv.positive_int,
+    vol.Optional(CONF_RES_GET_HOURLY_DAYS, default=1): vol.Clamp(min=1, max=2),
 })
 
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=300)
