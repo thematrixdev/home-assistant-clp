@@ -303,6 +303,9 @@ class CLPSensor(SensorEntity):
             json: dict = None,
             params: dict = None
     ):
+        if not self._access_token:
+            raise Exception("Problematic authorization. Please check your username and password, or change your IP address.")
+
         if json:
             _LOGGER.debug(f"REQUEST {method} {headers} {url} {params} {json}")
 
@@ -318,6 +321,14 @@ class CLPSensor(SensorEntity):
             try:
                 response.raise_for_status()
             except aiohttp.ClientResponseError as e:
+                if 400 <= e.status < 500:
+                    self._session = aiohttp_client.async_get_clientsession(self.hass)
+                    self._username = None
+                    self._account_number = None
+                    self._access_token = None
+                    self._refresh_token = None
+                    self._access_token_expiry_time = None
+
                 try:
                     response_data = await response.json()
                     _LOGGER.error(f"{response.status} {response.url} : {response_data}")
