@@ -303,7 +303,7 @@ class CLPSensor(SensorEntity):
             json: dict = None,
             params: dict = None
     ):
-        if not self._access_token:
+        if not self._access_token and 'loginByPassword' not in url and 'refresh_token' not in url:
             raise Exception("Problematic authorization. Please check your username and password, or change your IP address.")
 
         if json:
@@ -361,6 +361,10 @@ class CLPSensor(SensorEntity):
                     "password": self.hass.data[DOMAIN]['password'],
                 },
             )
+
+            if self.hass.data[DOMAIN]['username'].isdigit() and len(self.hass.data[DOMAIN]['username']) == 11:
+                self._account_number = self.hass.data[DOMAIN]['username']
+
             self._username = self.hass.data[DOMAIN]['username']
             self._access_token = response['data']['access_token']
             self._refresh_token = response['data']['refresh_token']
@@ -706,7 +710,7 @@ class CLPSensor(SensorEntity):
         await self.auth()
 
         if self._sensor_type == 'main':
-            if self._get_acct:
+            if not self._account_number or self._get_acct:
                 await self.main_get_account_detail()
 
             if self._get_bill:
