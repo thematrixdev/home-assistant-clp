@@ -69,28 +69,42 @@ clp_pw: "YOUR_VERY_SECURE_PASSWORD"
 
 ## Debug
 
-- Configure `debug` level https://www.home-assistant.io/integrations/logger/
-- SSH
-- `docker logs -f homeassistant`
-- Look for `CLP` wordings
+### Basic
 
-## Use SSH on Home Assistant Operating System
+- On Home Assistant, go to `Settigns` -> `Logs`
+- Search `CLP`
 
-1. Click on your username on UI
-2. Turn on `Advanced Mode` on the right
-3. Go to `Add-ons` -> `Add-on store`
-4. Install `SSH & Web Terminal` (the community version)
-5. On `Info` tab of `SSH & Web Terminal`, turn off `Protection mode`
-6. On `Configuration` tab, enter a `password`, change `sftp` to `true`
-7. On `Configuration` tab, turn on `share_sessions`. `Save`
-8. On `Info` tab click `START`
-9. SSH to `hassio@IP` with the configured password
+### Advanced
+
+- Add these lines to `configuration.yaml`
+
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.clp: debug
+```
+
+- Restart Home Assistant
+- On Home Assistant, go to `Settigns` -> `Logs`
+- Search `CLP`
+- Click the `LOAD FULL LOGS` button
+
+## Support
+
+- Open an issue on GitHub
+- Specify:
+  - What's wrong
+  - Home Assistant version
+  - CLP custom-integration version
+  - Configuration (without sensitive data)
+  - Logs
+
+## Unofficial support
+
+- Telegram Group https://t.me/smarthomehk
 
 ## Tested on
 
 - Ubuntu 24.10
 - Home Assistant Container 2024.10
-
-## Unofficial support
-
-https://t.me/smarthomehk
