@@ -85,7 +85,10 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 })
 
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=300)
+DAILY_TASK_INTERVAL = datetime.timedelta(hours=12)
+HOURLY_TASK_INTERVAL = datetime.timedelta(minutes=60)
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+HTTP_401_ERROR_RETRY_LIMIT = 3
 
 DOMAIN = CONF_DOMAIN
 
@@ -257,12 +260,12 @@ class CLPSensor(SensorEntity):
         self._hourly = None
 
         self._state_data_type = None
-        self._daily_task_interval = datetime.timedelta(hours=12)
-        self._hourly_task_interval = datetime.timedelta(minutes=60)
         self._single_task_last_fetch_time = None
         self._hourly_task_last_fetch_time = None
         self._daily_task_last_fetch_time = None
         self.error = None
+        self._401_error_retry = 0
+
 
     @property
     def state_class(self) -> SensorStateClass | str | None:
@@ -326,7 +329,8 @@ class CLPSensor(SensorEntity):
             try:
                 response.raise_for_status()
             except aiohttp.ClientResponseError as e:
-                if 400 <= e.status < 500:
+                if e.status == 401:
+                    self._401_error_retry = self._401_error_retry + 1
                     self._session = aiohttp_client.async_get_clientsession(self.hass)
                     self._username = None
                     self._account_number = None
@@ -340,23 +344,41 @@ class CLPSensor(SensorEntity):
                 except Exception as _:
                     response_text = await response.text()
                     _LOGGER.error(f"{response.status} {response.url} : {response_text}")
+
+                if self._401_error_retry > HTTP_401_ERROR_RETRY_LIMIT:
+                    _LOGGER.error('401 error retry limit reached')
+                    raise Exception('401 error retry limit reached')
+
                 raise e
 
-            response_data = await response.json()
-            _LOGGER.debug(f"RESPONSE {response.status} {response.url} : {response_data}")
-            return response_data
+            self._401_error_retry = 0
+
+            try:
+                response_data = await response.json()
+
+                if not response_data or 'data' not in response_data:
+                    _LOGGER.error(f"RESPONSE {response.status} {response.url} : {response_data}")
+                    raise ValueError('Invalid response data')
+
+                _LOGGER.debug(f"RESPONSE {response.status} {response.url} : {response_data}")
+
+                return response_data
+            except Exception as _:
+                response_text = await response.text()
+                _LOGGER.error(f"{response.status} {response.url} : {response_text}")
+                raise
 
 
     @handle_errors
     async def auth(self):
         if (
-                self._username is None
-                or self.hass.data[DOMAIN]['username'] != self._username
-                or self._access_token is None
-                or (
+            self._username is None
+            or self.hass.data[DOMAIN]['username'] != self._username
+            or self._access_token is None
+            or (
                 self._access_token_expiry_time
                 and datetime.datetime.now(datetime.timezone.utc) > self._access_token_expiry_time
-        )
+            )
         ):
             response = await self.api_request(
                 method="POST",
@@ -728,33 +750,36 @@ class CLPSensor(SensorEntity):
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self) -> None:
+        if self._401_error_retry > HTTP_401_ERROR_RETRY_LIMIT:
+            return
+
         await self.auth()
 
         if self._sensor_type == 'main':
             if (not self._single_task_last_fetch_time) and (not self._account_number or self._get_acct):
                 await self.main_get_account_detail()
 
-            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and self._get_bill:
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL) and self._get_bill:
                 await self.main_get_bill()
 
-            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and self._get_estimation:
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL) and self._get_estimation:
                 await self.main_get_estimation()
 
-            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and (self._get_bimonthly or self._type == '' or self._type.upper() == 'BIMONTHLY'):
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL) and (self._get_bimonthly or self._type == '' or self._type.upper() == 'BIMONTHLY'):
                 await self.main_get_bimonthly()
 
-            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and (self._get_daily or self._type == '' or self._type.upper() == 'DAILY'):
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL) and (self._get_daily or self._type == '' or self._type.upper() == 'DAILY'):
                 await self.main_get_daily()
 
-            if (not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + self._hourly_task_interval) and (self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY'):
+            if (not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + HOURLY_TASK_INTERVAL) and (self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY'):
                 await self.main_get_hourly()
 
         elif self._sensor_type == 'renewable_energy':
-            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and (self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY'):
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL) and (self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY'):
                 await self.renewable_get_bimonthly()
 
-            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + self._daily_task_interval) and (self._get_daily or self._type == '' or self._type.upper() == 'DAILY'):
+            if (not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL) and (self._get_daily or self._type == '' or self._type.upper() == 'DAILY'):
                 await self.renewable_get_daily()
 
-            if (not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + self._hourly_task_interval) and (self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY'):
+            if (not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + HOURLY_TASK_INTERVAL) and (self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY'):
                 await self.renewable_get_hourly()
