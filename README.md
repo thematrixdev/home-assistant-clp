@@ -33,13 +33,13 @@ sensor:
 
 ```yaml
 # secrets.yaml
-clp_username: "YOUR_USERNAME"
+clp_username: "YOUR_USERNAME_OR_ACCOUNT_NUMBER"
 clp_pw: "YOUR_VERY_SECURE_PASSWORD"
 ```
 
 | Key                                  | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
 |--------------------------------------|---------|----------|----------------------------------------------|--------------------------|-------------------------------------------------------------------------------------|
-| `username`                           | string  | *        | Any string                                   | (N/A)                    | CLP account username                                                                |
+| `username`                           | string  | *        | Any string                                   | (N/A)                    | CLP username or account number                                                      |
 | `password`                           | string  | *        | Any string                                   | (N/A)                    | CLP account password                                                                |
 | `name`                               | string  |          | Any string                                   | `CLP`                    | Name of the sensor                                                                  |
 | `timeout`                            | int     |          | Any integer                                  | `30`                     | Connection timeout in second                                                        |

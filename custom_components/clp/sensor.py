@@ -219,6 +219,7 @@ class CLPSensor(SensorEntity):
 
         self._session = session
         self._username = None
+        self._account_number = None
         self._access_token = None
         self._refresh_token = None
         self._access_token_expiry_time = None
@@ -341,10 +342,10 @@ class CLPSensor(SensorEntity):
                     "password": self.hass.data[DOMAIN]['password'],
                 },
             )
+            self._username = self.hass.data[DOMAIN]['username']
             self._access_token = response['data']['access_token']
             self._refresh_token = response['data']['refresh_token']
             self._access_token_expiry_time = response['data']['expires_in']
-            self._username = self.hass.data[DOMAIN]['username']
         else:
             response = await self.api_request(
                 method="POST",
@@ -367,7 +368,7 @@ class CLPSensor(SensorEntity):
                 "Authorization": self._access_token,
             },
         )
-
+        self._account_number = response['data'][0]['caNo']
         self._account = {
             'number': response['data'][0]['caNo'],
             'outstanding': float(response['data'][0]['outstandingAmount']),
@@ -385,7 +386,7 @@ class CLPSensor(SensorEntity):
             json={
                 "caList": [
                     {
-                        "ca": self.hass.data[DOMAIN]['username'],
+                        "ca": self._account_number,
                     },
                 ],
             },
@@ -425,7 +426,7 @@ class CLPSensor(SensorEntity):
                 "Authorization": self._access_token,
             },
             params={
-                "ca": self.hass.data[DOMAIN]['username'],
+                "ca": self._account_number,
             },
         )
 
@@ -454,7 +455,7 @@ class CLPSensor(SensorEntity):
                 "Authorization": self._access_token,
             },
             json={
-                "ca": self.hass.data[DOMAIN]['username'],
+                "ca": self._account_number,
                 "fromDate": dates["427_days_ago"].strftime('%Y%m%d000000'),
                 "mode": "Bill",
                 "toDate": dates["today"].strftime('%Y%m%d000000'),
@@ -489,7 +490,7 @@ class CLPSensor(SensorEntity):
                 "Authorization": self._access_token,
             },
             json={
-                "ca": self.hass.data[DOMAIN]['username'],
+                "ca": self._account_number,
                 "fromDate": dates["this_month"].strftime("%Y%m%d000000"),
                 "mode": "Daily",
                 "toDate": dates["next_month"].strftime("%Y%m%d000000"),
@@ -543,7 +544,7 @@ class CLPSensor(SensorEntity):
                     "Authorization": self._access_token,
                 },
                 json={
-                    "ca": self.hass.data[DOMAIN]['username'],
+                    "ca": self._account_number,
                     "fromDate": from_date.strftime("%Y%m%d000000"),
                     "mode": "Hourly",
                     "toDate": to_date.strftime("%Y%m%d000000"),
@@ -580,7 +581,7 @@ class CLPSensor(SensorEntity):
                 "Authorization": self._access_token,
             },
             json={
-                "caNo": self.hass.data[DOMAIN]['username'],
+                "caNo": self._account_number,
                 "mode": "B",
                 "startDate": dates["today"].strftime("%m/%d/%Y"),
             },
@@ -614,7 +615,7 @@ class CLPSensor(SensorEntity):
                 "Authorization": self._access_token,
             },
             json={
-                "caNo": self.hass.data[DOMAIN]['username'],
+                "caNo": self._account_number,
                 "mode": "D",
                 "startDate": dates["today"].strftime("%m/%d/%Y"),
             },
@@ -663,7 +664,7 @@ class CLPSensor(SensorEntity):
                     "Authorization": self._access_token,
                 },
                 json={
-                    "caNo": self.hass.data[DOMAIN]['username'],
+                    "caNo": self._account_number,
                     "mode": "H",
                     "startDate": start,
                 },
