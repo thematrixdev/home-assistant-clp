@@ -778,6 +778,10 @@ class CLPSensor(SensorEntity):
                     await self.main_get_hourly()
 
         elif self._sensor_type == 'renewable_energy':
+            if not self._single_task_last_fetch_time:
+                if not self._account_number:
+                    await self.main_get_account_detail()
+
             if not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL:
                 if self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY':
                     await self.renewable_get_bimonthly()
