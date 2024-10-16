@@ -238,6 +238,7 @@ class CLPSensor(SensorEntity):
         self._timeout = timeout
         self._retry_delay = retry_delay
 
+        self._initialized = False
         self._type = type
         self._get_acct = get_acct
         self._get_bill = get_bill
@@ -796,3 +797,7 @@ class CLPSensor(SensorEntity):
             if not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + HOURLY_TASK_INTERVAL:
                 if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
                     await self.renewable_get_hourly()
+
+        if not self._initialized:
+            self._initialized = True
+            self._type = self._state_data_type
