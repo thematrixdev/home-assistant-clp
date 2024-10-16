@@ -585,6 +585,10 @@ class CLPSensor(SensorEntity):
             from_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(self._get_hourly_days - i))
             to_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(self._get_hourly_days - i - 1))
 
+            if datetime.time(0, 0) <= datetime.datetime.now(self._timezone).time() < datetime.time(4, 0):
+                from_date = from_date + datetime.timedelta(days=-1)
+                to_date = to_date + datetime.timedelta(days=-1)
+
             response = await self.api_request(
                 method="POST",
                 url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/history",
@@ -705,6 +709,9 @@ class CLPSensor(SensorEntity):
         hourly = []
         for i in range(1, self._get_hourly_days + 1):
             start_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(self._get_hourly_days - i))
+
+            if datetime.time(0, 0) <= datetime.datetime.now(self._timezone).time() < datetime.time(4, 0):
+                start_date = start_date + datetime.timedelta(days=-1)
 
             response = await self.api_request(
                 method="POST",
