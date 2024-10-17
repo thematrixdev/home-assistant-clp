@@ -86,7 +86,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=300)
 DAILY_TASK_INTERVAL = datetime.timedelta(hours=12)
-HOURLY_TASK_INTERVAL = datetime.timedelta(minutes=60)
+HOURLY_TASK_INTERVAL = datetime.timedelta(minutes=30)
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
 HTTP_401_ERROR_RETRY_LIMIT = 3
 
