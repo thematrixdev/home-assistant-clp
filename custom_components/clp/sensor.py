@@ -394,7 +394,7 @@ class CLPSensor(SensorEntity):
             self._refresh_token = response['data']['refresh_token']
             self._access_token_expiry_time = datetime.datetime.strptime(response['data']['expires_in'], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc)
 
-        elif self._access_token_expiry_time and datetime.datetime.now(datetime.timezone.utc) > self._access_token_expiry_time:
+        elif self._access_token_expiry_time and datetime.datetime.now(datetime.timezone.utc) > self._access_token_expiry_time + datetime.timedelta(minutes=-1):
             response = await self.api_request(
                 method="POST",
                 url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
