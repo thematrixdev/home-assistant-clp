@@ -238,7 +238,6 @@ class CLPSensor(SensorEntity):
         self._timeout = timeout
         self._retry_delay = retry_delay
 
-        self._initialized = False
         self._type = type
         self._get_acct = get_acct
         self._get_bill = get_bill
@@ -759,6 +758,9 @@ class CLPSensor(SensorEntity):
 
         await self.auth()
 
+        if not self._access_token or datetime.datetime.now(datetime.timezone.utc) >= self._access_token_expiry_time:
+            return
+
         if self._sensor_type == 'main':
             if not self._single_task_last_fetch_time:
                 if not self._account_number or self._get_acct:
@@ -790,7 +792,6 @@ class CLPSensor(SensorEntity):
                 if self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY':
                     await self.renewable_get_bimonthly()
 
-            if not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL:
                 if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
                     await self.renewable_get_daily()
 
@@ -798,6 +799,5 @@ class CLPSensor(SensorEntity):
                 if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
                     await self.renewable_get_hourly()
 
-        if not self._initialized:
-            self._initialized = True
+        if self._type == '' and self._state_data_type is not None:
             self._type = self._state_data_type
