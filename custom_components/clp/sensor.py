@@ -419,6 +419,7 @@ class CLPSensor(SensorEntity):
         self._account = {
             'number': response['data'][0]['caNo'],
             'outstanding': float(response['data'][0]['outstandingAmount']),
+            'due_date': datetime.datetime.strptime(response['data'][0]['dueDate'], '%Y%m%d%H%M%S'),
         }
         self._single_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
