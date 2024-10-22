@@ -403,7 +403,7 @@ class CLPSensor(SensorEntity):
             )
             self._access_token = response['data']['access_token']
             self._refresh_token = response['data']['refresh_token']
-            self._access_token_expiry_time = datetime.datetime.strptime(response['data']['expires_in'], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc)
+            self._access_token_expiry_time = datetime.datetime.strptime(response['data']['expires_in'], '%Y%m%d%H%M%S') if (response['data']['expires_in'] is not None and response['data']['expires_in'] != '') else None
 
 
     @handle_errors
