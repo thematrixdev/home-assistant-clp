@@ -1,16 +1,19 @@
 {
-  "version": "11.7.11",
-  "domain": "clp",
-  "name": "CLP",
-  "documentation": "https://github.com/thematrixdev/home-assistant-clp",
+  "version": "11.8.0",
   "issue_tracker": "https://github.com/thematrixdev/home-assistant-clp/issues",
-  "config_flow": true,
+
+  "domain": "clphk",
+  "name": "CLPHK",
+  "integration_type": "service",
+  "documentation": "https://github.com/thematrixdev/home-assistant-clp",
   "codeowners": ["@thematrixdev"],
-  "iot_class": "cloud_polling",
-  "loggers": ["clp"],
+  "config_flow": true,
   "requirements": [
     "aiohttp",
     "cryptography",
     "pytz"
-  ]
+  ],
+  "loggers": ["clphk"],
+  "quality_scale": "silver",
+  "iot_class": "cloud_polling"
 }

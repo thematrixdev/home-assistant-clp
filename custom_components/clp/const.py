@@ -1,4 +1,4 @@
-CONF_DOMAIN = 'CLP'
+CONF_DOMAIN = 'clphk'
 
 CONF_RETRY_DELAY = 'retry_delay'
 

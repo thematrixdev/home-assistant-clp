@@ -99,11 +99,15 @@ async def async_setup_platform(
         async_add_entities: AddEntitiesCallback,
         discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
+    """Set up the sensor platform."""
+    if discovery_info is None:
+        return
+
     session = aiohttp_client.async_get_clientsession(hass)
 
     public_key = serialization.load_pem_public_key(CONF_CLP_PUBLIC_KEY.encode())
     ciphertext = public_key.encrypt(
-        config.get(CONF_PASSWORD).encode('utf-8'),
+        discovery_info[CONF_PASSWORD].encode('utf-8'),
         padding.OAEP(
             mgf=padding.MGF1(algorithm=hashes.SHA256()),
             algorithm=hashes.SHA256(),
@@ -112,7 +116,7 @@ async def async_setup_platform(
     )
 
     hass.data[DOMAIN] = {
-        'username': config.get(CONF_USERNAME),
+        'username': discovery_info[CONF_USERNAME],
         'password': base64.b64encode(ciphertext).decode(),
         'session': session,
     }
@@ -122,39 +126,39 @@ async def async_setup_platform(
             CLPSensor(
                 sensor_type='main',
                 session=session,
-                name=config.get(CONF_NAME),
-                timeout=config.get(CONF_TIMEOUT),
-                retry_delay=config.get(CONF_RETRY_DELAY),
-                type=config.get(CONF_TYPE),
-                get_acct=config.get(CONF_GET_ACCT),
-                get_bill=config.get(CONF_GET_BILL),
-                get_estimation=config.get(CONF_GET_ESTIMATION),
-                get_bimonthly=config.get(CONF_GET_BIMONTHLY),
-                get_daily=config.get(CONF_GET_DAILY),
-                get_hourly=config.get(CONF_GET_HOURLY),
-                get_hourly_days=config.get(CONF_GET_HOURLY_DAYS),
+                name=discovery_info.get(CONF_NAME, "CLP"),
+                timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
+                retry_delay=int(discovery_info.get(CONF_RETRY_DELAY, 300)),
+                type=discovery_info.get(CONF_TYPE, ""),
+                get_acct=discovery_info.get(CONF_GET_ACCT, False),
+                get_bill=discovery_info.get(CONF_GET_BILL, False),
+                get_estimation=discovery_info.get(CONF_GET_ESTIMATION, False),
+                get_bimonthly=discovery_info.get(CONF_GET_BIMONTHLY, False),
+                get_daily=discovery_info.get(CONF_GET_DAILY, False),
+                get_hourly=discovery_info.get(CONF_GET_HOURLY, False),
+                get_hourly_days=int(discovery_info.get(CONF_GET_HOURLY_DAYS, 1)),
             ),
         ],
         update_before_add=True,
     )
 
-    if config.get(CONF_RES_ENABLE):
+    if discovery_info.get(CONF_RES_ENABLE, False):
         async_add_entities(
             [
                 CLPSensor(
                     sensor_type='renewable_energy',
                     session=session,
-                    name=config.get(CONF_RES_NAME),
-                    timeout=config.get(CONF_TIMEOUT),
-                    retry_delay=config.get(CONF_RETRY_DELAY),
-                    type=config.get(CONF_RES_TYPE),
+                    name=discovery_info.get(CONF_RES_NAME, "CLP Renewable Energy"),
+                    timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
+                    retry_delay=int(discovery_info.get(CONF_RETRY_DELAY, 300)),
+                    type=discovery_info.get(CONF_RES_TYPE, ""),
                     get_acct=False,
-                    get_bill=config.get(CONF_RES_GET_BILL),
+                    get_bill=discovery_info.get(CONF_RES_GET_BILL, False),
                     get_estimation=False,
                     get_bimonthly=False,
-                    get_daily=config.get(CONF_RES_GET_DAILY),
-                    get_hourly=config.get(CONF_RES_GET_HOURLY),
-                    get_hourly_days=config.get(CONF_RES_GET_HOURLY_DAYS),
+                    get_daily=discovery_info.get(CONF_RES_GET_DAILY, False),
+                    get_hourly=discovery_info.get(CONF_RES_GET_HOURLY, False),
+                    get_hourly_days=int(discovery_info.get(CONF_RES_GET_HOURLY_DAYS, 1)),
                 ),
             ],
             update_before_add=True,
@@ -166,7 +170,13 @@ async def async_setup_entry(
         config_entry: ConfigEntry,
         async_add_entities: AddEntitiesCallback,
 ) -> None:
-    await async_setup_platform(hass, {}, async_add_entities)
+    """Set up the sensor platform from a config entry."""
+    await async_setup_platform(
+        hass,
+        {},
+        async_add_entities,
+        discovery_info=config_entry.data
+    )
 
 
 def get_dates(timezone):
@@ -378,7 +388,7 @@ class CLPSensor(SensorEntity):
         ):
             response = await self.api_request(
                 method="POST",
-                url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/profile/accountManagement/loginByPassword",
+                url="https://api.clp.com.hk/ts1/ms/profile/accountManagement/loginByPassword",
                 json={
                     "username": self.hass.data[DOMAIN]['username'],
                     "password": self.hass.data[DOMAIN]['password'],
@@ -396,7 +406,7 @@ class CLPSensor(SensorEntity):
         elif self._access_token_expiry_time and datetime.datetime.now(datetime.timezone.utc) > (self._access_token_expiry_time + datetime.timedelta(minutes=-1)).replace(tzinfo=datetime.timezone.utc):
             response = await self.api_request(
                 method="POST",
-                url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
+                url="https://api.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
                 json={
                     "refreshToken": self._refresh_token,
                 },
@@ -410,7 +420,7 @@ class CLPSensor(SensorEntity):
     async def main_get_account_detail(self):
         response = await self.api_request(
             method="GET",
-            url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/profile/accountdetails/myServicesCA",
+            url="https://api.clp.com.hk/ts1/ms/profile/accountdetails/myServicesCA",
             headers={
                 "Authorization": self._access_token,
             },
@@ -428,7 +438,7 @@ class CLPSensor(SensorEntity):
     async def main_get_bill(self):
         response = await self.api_request(
             method="POST",
-            url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/billing/transaction/historyBilling",
+            url="https://api.clp.com.hk/ts1/ms/billing/transaction/historyBilling",
             headers={
                 "Authorization": self._access_token,
             },
@@ -471,7 +481,7 @@ class CLPSensor(SensorEntity):
     async def main_get_estimation(self):
         response = await self.api_request(
             method="GET",
-            url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/info",
+            url="https://api.clp.com.hk/ts1/ms/consumption/info",
             headers={
                 "Authorization": self._access_token,
             },
@@ -501,7 +511,7 @@ class CLPSensor(SensorEntity):
 
         response = await self.api_request(
             method="POST",
-            url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/history",
+            url="https://api.clp.com.hk/ts1/ms/consumption/history",
             headers={
                 "Authorization": self._access_token,
             },
@@ -538,7 +548,7 @@ class CLPSensor(SensorEntity):
 
         response = await self.api_request(
             method="POST",
-            url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/history",
+            url="https://api.clp.com.hk/ts1/ms/consumption/history",
             headers={
                 "Authorization": self._access_token,
             },
@@ -592,7 +602,7 @@ class CLPSensor(SensorEntity):
 
             response = await self.api_request(
                 method="POST",
-                url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/consumption/history",
+                url="https://api.clp.com.hk/ts1/ms/consumption/history",
                 headers={
                     "Authorization": self._access_token,
                 },
@@ -631,7 +641,7 @@ class CLPSensor(SensorEntity):
 
         response = await self.api_request(
             method="POST",
-            url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/renew/fit/dashboard",
+            url="https://api.clp.com.hk/ts1/ms/renew/fit/dashboard",
             headers={
                 "Authorization": self._access_token,
             },
@@ -667,7 +677,7 @@ class CLPSensor(SensorEntity):
 
         response = await self.api_request(
             method="POST",
-            url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/renew/fit/dashboard",
+            url="https://api.clp.com.hk/ts1/ms/renew/fit/dashboard",
             headers={
                 "Authorization": self._access_token,
             },
@@ -716,7 +726,7 @@ class CLPSensor(SensorEntity):
 
             response = await self.api_request(
                 method="POST",
-                url="https://clpapigee.eipprod.clp.com.hk/ts1/ms/renew/fit/dashboard",
+                url="https://api.clp.com.hk/ts1/ms/renew/fit/dashboard",
                 headers={
                     "Authorization": self._access_token,
                 },
