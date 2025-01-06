@@ -6,7 +6,7 @@
 - CLP website credentials
 - CLP smart meter installed (for `HOURLY` usage data)
 
-## Install
+## Add to HACS
 
 1. Setup `HACS` https://hacs.xyz/docs/setup/prerequisites
 2. In `Home Assistant`, click `HACS` on the menu on the left
@@ -14,28 +14,18 @@
 4. Click the menu button in the top right hand corner
 5. Choose `custom repositories`
 6. Enter `https://github.com/thematrixdev/home-assistant-clp` and choose `Integration`, click `ADD`
-7. Find and click on `CLP` in the `custom repositories` list
+7. Find and click on `CLPHK` in the `custom repositories` list
 8. Click the `DOWNLOAD` button in the bottom right hand corner
 9. Restart Home-Assistant ***(You have to restart before proceeding)***
 
+## Install
+
+1. Go to `Settings`, `Devices and Services`
+2. Click the `Add Integration` button
+3. Search `CLPHK`
+4. Go through the configuration flow
+
 ## Configure in Home-Assistant
-
-### Minimal configuration
-
-```yaml
-# configuration.yaml
-sensor:
-  - platform: clp
-    username: !secret clp_username
-    password: !secret clp_pw
-    type: 'HOURLY'
-```
-
-```yaml
-# secrets.yaml
-clp_username: "YOUR_USERNAME_OR_ACCOUNT_NUMBER"
-clp_pw: "YOUR_VERY_SECURE_PASSWORD"
-```
 
 | Key                                       | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
 |-------------------------------------------|---------|----------|----------------------------------------------|--------------------------|-------------------------------------------------------------------------------------|
