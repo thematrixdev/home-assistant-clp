@@ -16,7 +16,7 @@
 6. Enter `https://github.com/thematrixdev/home-assistant-clp` and choose `Integration`, click `ADD`
 7. Find and click on `CLPHK` in the `custom repositories` list
 8. Click the `DOWNLOAD` button in the bottom right hand corner
-9. Restart Home-Assistant ***(You have to restart before proceeding)***
+9. Restart Home Assistant
 
 ## Install
 
@@ -54,7 +54,7 @@
 
 ## Common problem
 
-- More than one `clp` entry will cause issues. Avoid multiple entries.
+- More than one `clphk` entry will cause issues. Avoid multiple entries.
 - Timeouts may occur on slower hardware. Increase `timeout` in `configuration.yaml` to mitigate.
 
 ## Debug
@@ -62,7 +62,7 @@
 ### Basic
 
 - On Home Assistant, go to `Settigns` -> `Logs`
-- Search `CLP`
+- Search `CLPHK`
 
 ### Advanced
 
@@ -72,12 +72,12 @@
 logger:
   default: info
   logs:
-    custom_components.clp: debug
+    custom_components.clphk: debug
 ```
 
 - Restart Home Assistant
 - On Home Assistant, go to `Settigns` -> `Logs`
-- Search `CLP`
+- Search `CLPHK`
 - Click the `LOAD FULL LOGS` button
 
 ## Support
