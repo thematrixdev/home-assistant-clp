@@ -339,6 +339,21 @@ class CLPSensor(SensorEntity):
             try:
                 response.raise_for_status()
             except aiohttp.ClientResponseError as e:
+                error_message = f"{e.status} {e.request_info.url}"
+                
+                try:
+                    # Try to read the response content only once and store it
+                    error_content = await response.text()
+                    try:
+                        error_data = json.loads(error_content)
+                        error_message += f" : {error_data}"
+                    except json.JSONDecodeError:
+                        error_message += f" : {error_content}"
+                except Exception as read_error:
+                    error_message += f" (Failed to read error response: {read_error})"
+                
+                _LOGGER.error(error_message)
+                
                 if e.status == 401:
                     self._401_error_retry = self._401_error_retry + 1
                     self._session = aiohttp_client.async_get_clientsession(self.hass)
@@ -348,20 +363,11 @@ class CLPSensor(SensorEntity):
                     self._refresh_token = None
                     self._access_token_expiry_time = None
 
-                try:
-                    response_data = await response.json()
-                    _LOGGER.error(f"{response.status} {response.url} : {response_data}")
-                except Exception as _:
-                    response_text = await response.text()
-                    _LOGGER.error(f"{response.status} {response.url} : {response_text}")
-
-                if self._401_error_retry > HTTP_401_ERROR_RETRY_LIMIT:
-                    _LOGGER.error('401 error retry limit reached')
-                    raise Exception('401 error retry limit reached')
-
+                    if self._401_error_retry > HTTP_401_ERROR_RETRY_LIMIT:
+                        _LOGGER.error('401 error retry limit reached')
+                        raise Exception('401 error retry limit reached')
+                    
                 raise e
-
-            self._401_error_retry = 0
 
             try:
                 response_data = await response.json()
