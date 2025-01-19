@@ -191,26 +191,49 @@ def get_dates(timezone):
     }
 
 
+class ExponentialBackoff:
+    def __init__(self, min_delay: int, max_delay: int, factor: float = 2.0):
+        self.min_delay = min_delay
+        self.max_delay = max_delay
+        self.factor = factor
+        self.delay = min_delay
+        self.tries = 0
+
+    def reset(self):
+        self.delay = self.min_delay
+        self.tries = 0
+
+    def increment(self):
+        self.tries += 1
+        self.delay = min(self.max_delay, self.delay * self.factor)
+        return self.delay
+
+
 def handle_errors(func):
     async def wrapper(self, *args, **kwargs):
         try:
-            return await func(self, *args, **kwargs)
+            # Reset backoff and error state on successful call
+            if not hasattr(self, '_backoff'):
+                self._backoff = ExponentialBackoff(
+                    min_delay=self._retry_delay,
+                    max_delay=3600  # Max 1 hour between retries
+                )
+            
+            result = await func(self, *args, **kwargs)
+            self._backoff.reset()
+            self.error = None
+            return result
+            
         except Exception as e:
-            await self.hass.services.async_call(
-                'persistent_notification',
-                'create',
-                {
-                    'title': f'Error in {self._name} sensor',
-                    'message': str(e),
-                    'notification_id': f'{self._name}_{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}',
-                }
-            )
-
-            self.error = str(e)
-            _LOGGER.error(f"{self._name} ERROR: {e}", exc_info=True)
-
-            async_call_later(self.hass, self._retry_delay, self.async_update)
-
+            error_msg = str(e)
+            self.error = error_msg
+            _LOGGER.error(f"{self._name} ERROR: {error_msg}", exc_info=True)
+            
+            # Schedule next retry with exponential backoff
+            next_retry_delay = self._backoff.increment()
+            _LOGGER.info(f"{self._name}: Scheduling retry in {next_retry_delay} seconds")
+            async_call_later(self.hass, next_retry_delay, self.async_update)
+            
             return None
 
     return wrapper
