@@ -454,12 +454,18 @@ class CLPSensor(SensorEntity):
                 "Authorization": self._access_token,
             },
         )
-        self._account_number = response['data'][0]['caNo']
-        self._account = {
-            'number': response['data'][0]['caNo'],
-            'outstanding': float(response['data'][0]['outstandingAmount']),
-            'due_date': datetime.datetime.strptime(response['data'][0]['dueDate'], '%Y%m%d%H%M%S') if (response['data'][0]['dueDate'] is not None and response['data'][0]['dueDate'] != '') else None,
-        }
+        # Find the first entry with status 'Active'
+        active_data = next((item for item in response['data'] if item.get('status') == 'Active'), None)
+        if not active_data:
+            self._account_number = None
+            self._account = None
+        else:
+            self._account_number = active_data['caNo']
+            self._account = {
+                'number': active_data['caNo'],
+                'outstanding': float(active_data['outstandingAmount']),
+                'due_date': datetime.datetime.strptime(active_data['dueDate'], '%Y%m%d%H%M%S') if (active_data['dueDate'] is not None and active_data['dueDate'] != '') else None,
+            }
         self._single_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
 
