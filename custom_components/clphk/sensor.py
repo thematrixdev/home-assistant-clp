@@ -184,7 +184,7 @@ def get_dates(timezone):
         "yesterday": datetime.datetime.now(timezone) + datetime.timedelta(days=-1),
         "today": datetime.datetime.now(timezone),
         "tomorrow": datetime.datetime.now(timezone) + datetime.timedelta(days=1),
-        "427_days_ago": (datetime.datetime.now(timezone) + relativedelta.relativedelta(days=-427)),
+        "one_year_two_months_ago": (datetime.datetime.now(timezone) - relativedelta.relativedelta(years=1, months=2)).replace(day=datetime.datetime.now(timezone).day),
         "last_month": (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=-1)),
         "this_month": datetime.datetime.now(timezone).replace(day=1),
         "next_month": (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=1)),
@@ -552,7 +552,7 @@ class CLPSensor(SensorEntity):
             },
             json={
                 "ca": self._account_number,
-                "fromDate": dates["427_days_ago"].strftime('%Y%m%d000000'),
+                "fromDate": dates["one_year_two_months_ago"].strftime('%Y%m%d000000'),
                 "mode": "Bill",
                 "toDate": dates["today"].strftime('%Y%m%d000000'),
                 "type": "Unit",
