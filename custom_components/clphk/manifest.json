@@ -15,5 +15,6 @@
   ],
   "loggers": ["clphk"],
   "quality_scale": "silver",
-  "iot_class": "cloud_polling"
+  "iot_class": "cloud_polling",
+  "platforms": ["sensor"]
 }

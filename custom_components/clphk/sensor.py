@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import base64
+import asyncio
 import datetime
 import logging
 
@@ -9,9 +9,6 @@ import async_timeout
 import homeassistant.helpers.config_validation as cv
 import pytz
 import voluptuous as vol
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import padding
 from dateutil import relativedelta
 from homeassistant.components.lock import PLATFORM_SCHEMA
 from homeassistant.components.sensor import (
@@ -22,8 +19,6 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_NAME,
-    CONF_USERNAME,
-    CONF_PASSWORD,
     CONF_TIMEOUT,
     CONF_TYPE,
     UnitOfEnergy,
@@ -36,8 +31,6 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
 
 from .const import (
-    CONF_CLP_PUBLIC_KEY,
-
     CONF_DOMAIN,
     CONF_RETRY_DELAY,
 
@@ -61,8 +54,6 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_USERNAME): cv.string,
-    vol.Required(CONF_PASSWORD): cv.string,
     vol.Optional(CONF_TIMEOUT, default=30): cv.positive_int,
     vol.Optional(CONF_RETRY_DELAY, default=300): cv.positive_int,
     vol.Optional(CONF_NAME, default='CLP'): cv.string,
@@ -87,8 +78,8 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=300)
 DAILY_TASK_INTERVAL = datetime.timedelta(hours=12)
 HOURLY_TASK_INTERVAL = datetime.timedelta(minutes=30)
-USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
-HTTP_401_ERROR_RETRY_LIMIT = 3
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+HTTP_4xx_ERROR_RETRY_LIMIT = 3
 
 DOMAIN = CONF_DOMAIN
 
@@ -105,27 +96,19 @@ async def async_setup_platform(
 
     session = aiohttp_client.async_get_clientsession(hass)
 
-    public_key = serialization.load_pem_public_key(CONF_CLP_PUBLIC_KEY.encode())
-    ciphertext = public_key.encrypt(
-        discovery_info[CONF_PASSWORD].encode('utf-8'),
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None,
-        )
-    )
-
-    hass.data[DOMAIN] = {
-        'username': discovery_info[CONF_USERNAME],
-        'password': base64.b64encode(ciphertext).decode(),
-        'session': session,
-    }
+    # Shared token state in hass.data[DOMAIN]
+    hass.data[DOMAIN]["session"] = session
+    # Set tokens on restart (if not already set)
+    for k in ("access_token", "refresh_token", "access_token_expiry_time"):
+        if discovery_info.get(k) is not None:
+            hass.data[DOMAIN][k] = discovery_info.get(k)
+    hass.data[DOMAIN]["token_lock"] = asyncio.Lock()
 
     async_add_entities(
         [
             CLPSensor(
+                hass=hass,
                 sensor_type='main',
-                session=session,
                 name=discovery_info.get(CONF_NAME, "CLP"),
                 timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
                 retry_delay=int(discovery_info.get(CONF_RETRY_DELAY, 300)),
@@ -146,8 +129,8 @@ async def async_setup_platform(
         async_add_entities(
             [
                 CLPSensor(
+                    hass=hass,
                     sensor_type='renewable_energy',
-                    session=session,
                     name=discovery_info.get(CONF_RES_NAME, "CLP Renewable Energy"),
                     timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
                     retry_delay=int(discovery_info.get(CONF_RETRY_DELAY, 300)),
@@ -171,11 +154,13 @@ async def async_setup_entry(
         async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensor platform from a config entry."""
+    # Merge config_entry.data and config_entry.options, options take precedence
+    merged = {**config_entry.data, **config_entry.options}
     await async_setup_platform(
         hass,
         {},
         async_add_entities,
-        discovery_info=config_entry.data
+        discovery_info=merged,
     )
 
 
@@ -221,12 +206,12 @@ def handle_errors(func):
             
             result = await func(self, *args, **kwargs)
             self._backoff.reset()
-            self.error = None
+            self._error = None
             return result
             
         except Exception as e:
             error_msg = str(e)
-            self.error = error_msg
+            self._error = error_msg
             _LOGGER.error(f"{self._name} ERROR: {error_msg}", exc_info=True)
             
             # Schedule next retry with exponential backoff
@@ -244,33 +229,25 @@ class CLPSensor(SensorEntity):
 
     def __init__(
             self,
+            hass,
             sensor_type: str,
-            session: aiohttp.ClientSession,
             name: str,
             timeout: int,
             retry_delay: int,
-            type: str,
-            get_acct: bool,
-            get_bill: bool,
-            get_estimation: bool,
-            get_bimonthly: bool,
-            get_daily: bool,
-            get_hourly: bool,
-            get_hourly_days: int,
+            type: str = None,
+            get_acct: bool = False,
+            get_bill: bool = False,
+            get_estimation: bool = False,
+            get_bimonthly: bool = False,
+            get_daily: bool = False,
+            get_hourly: bool = False,
+            get_hourly_days: int = 1,
     ) -> None:
+        self.hass = hass
         self._sensor_type = sensor_type
-
-        self._session = session
-        self._username = None
-        self._account_number = None
-        self._access_token = None
-        self._refresh_token = None
-        self._access_token_expiry_time = None
-
         self._name = name
         self._timeout = timeout
         self._retry_delay = retry_delay
-
         self._type = type
         self._get_acct = get_acct
         self._get_bill = get_bill
@@ -279,11 +256,15 @@ class CLPSensor(SensorEntity):
         self._get_daily = get_daily
         self._get_hourly = get_hourly
         self._get_hourly_days = get_hourly_days
-
+        self._account_number = None
+        self._state_data_type = None
+        self._error = None
         self._attr_device_class = SensorDeviceClass.ENERGY
         self._attr_native_value = None
         self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._attr_state_class = SensorStateClass.TOTAL
+        self._attr_name = name
+        self._attr_unique_id = f"clphk_{sensor_type}_{name.replace(' ', '_').lower()}"
 
         self._account = None
         self._bills = None
@@ -292,27 +273,60 @@ class CLPSensor(SensorEntity):
         self._daily = None
         self._hourly = None
 
-        self._state_data_type = None
         self._single_task_last_fetch_time = None
         self._hourly_task_last_fetch_time = None
         self._daily_task_last_fetch_time = None
-        self.error = None
-        self._401_error_retry = 0
-
+        self._4xx_error_retry = 0
 
     @property
-    def state_class(self) -> SensorStateClass | str | None:
-        return SensorStateClass.TOTAL
+    def unique_id(self):
+        return self._attr_unique_id
 
     @property
-    def name(self) -> str | None:
-        return self._name
+    def name(self):
+        return self._attr_name
+
+    @property
+    def state(self):
+        return self._attr_native_value
+
+    @property
+    def _token_state(self):
+        return self.hass.data[DOMAIN]
+
+    @property
+    def _access_token(self):
+        return self._token_state.get("access_token")
+
+    @property
+    def _refresh_token(self):
+        return self._token_state.get("refresh_token")
+
+    @property
+    def _access_token_expiry_time(self):
+        return self._token_state.get("access_token_expiry_time")
+
+    @_access_token.setter
+    def _access_token(self, value):
+        self._token_state["access_token"] = value
+
+    @_refresh_token.setter
+    def _refresh_token(self, value):
+        self._token_state["refresh_token"] = value
+
+    @_access_token_expiry_time.setter
+    def _access_token_expiry_time(self, value):
+        self._token_state["access_token_expiry_time"] = value
+
+    @property
+    def _session(self):
+        return self._token_state["session"]
 
     @property
     def extra_state_attributes(self) -> dict:
         attr = {
             "state_data_type": self._state_data_type,
-            "error": None,
+            "error": self._error,
         }
 
         if self._get_acct and hasattr(self, '_account'):
@@ -344,8 +358,8 @@ class CLPSensor(SensorEntity):
             json: dict = None,
             params: dict = None
     ):
-        if not self._access_token and 'loginByPassword' not in url and 'refresh_token' not in url:
-            raise Exception("Problematic authorization. Please check your username and password, or change your IP address.")
+        if not self._access_token and 'refresh_token' not in url:
+            raise Exception("Problematic authorization. Please configure again, or change your IP address.")
 
         if json:
             _LOGGER.debug(f"REQUEST {method} {headers} {url} {params} {json}")
@@ -377,18 +391,17 @@ class CLPSensor(SensorEntity):
                 
                 _LOGGER.error(error_message)
                 
-                if e.status == 401:
-                    self._401_error_retry = self._401_error_retry + 1
-                    self._session = aiohttp_client.async_get_clientsession(self.hass)
-                    self._username = None
+                # Handle all HTTP 4xx errors (client errors)
+                if 400 <= e.status < 500:
+                    self._4xx_error_retry = self._4xx_error_retry + 1
                     self._account_number = None
                     self._access_token = None
                     self._refresh_token = None
                     self._access_token_expiry_time = None
 
-                    if self._401_error_retry > HTTP_401_ERROR_RETRY_LIMIT:
-                        _LOGGER.error('401 error retry limit reached')
-                        raise Exception('401 error retry limit reached')
+                    if self._4xx_error_retry > HTTP_4xx_ERROR_RETRY_LIMIT:
+                        _LOGGER.error('HTTP 4xx error retry limit reached')
+                        raise Exception('HTTP 4xx error retry limit reached')
                     
                 raise e
 
@@ -410,39 +423,36 @@ class CLPSensor(SensorEntity):
 
     @handle_errors
     async def auth(self):
-        if (
-            self._username is None
-            or self.hass.data[DOMAIN]['username'] != self._username
-            or self._access_token is None
-        ):
-            response = await self.api_request(
-                method="POST",
-                url="https://api.clp.com.hk/ts1/ms/profile/accountManagement/loginByPassword",
-                json={
-                    "username": self.hass.data[DOMAIN]['username'],
-                    "password": self.hass.data[DOMAIN]['password'],
-                },
-            )
+        token_lock = self._token_state["token_lock"]
+        async with token_lock:
+            if self._access_token_expiry_time and datetime.datetime.now(datetime.timezone.utc) > (datetime.datetime.strptime(self._access_token_expiry_time, '%Y-%m-%dT%H:%M:%S.%fZ') + datetime.timedelta(minutes=-1)).replace(tzinfo=datetime.timezone.utc):
+                _LOGGER.debug(f"Refreshing access_token and refresh_token")
+                response = await self.api_request(
+                    method="POST",
+                    url="https://api.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
+                    json={
+                        "refreshToken": self._refresh_token,
+                    },
+                )
+                self._access_token = response['data']['access_token']
+                self._refresh_token = response['data']['refresh_token']
+                self._access_token_expiry_time = response['data']['expires_in']
+                # Persist tokens to config entry
+                await self._update_config_entry_tokens()
+                _LOGGER.debug(f"access_token: {self._access_token}")
+                _LOGGER.debug(f"refresh_token: {self._refresh_token}")
+                _LOGGER.debug(f"access_token_expiry_time: {self._access_token_expiry_time}")
 
-            if self.hass.data[DOMAIN]['username'].isdigit() and len(self.hass.data[DOMAIN]['username']) == 11:
-                self._account_number = self.hass.data[DOMAIN]['username']
-
-            self._username = self.hass.data[DOMAIN]['username']
-            self._access_token = response['data']['access_token']
-            self._refresh_token = response['data']['refresh_token']
-            self._access_token_expiry_time = datetime.datetime.strptime(response['data']['expires_in'], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=datetime.timezone.utc)
-
-        elif self._access_token_expiry_time and datetime.datetime.now(datetime.timezone.utc) > (self._access_token_expiry_time + datetime.timedelta(minutes=-1)).replace(tzinfo=datetime.timezone.utc):
-            response = await self.api_request(
-                method="POST",
-                url="https://api.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
-                json={
-                    "refreshToken": self._refresh_token,
-                },
-            )
-            self._access_token = response['data']['access_token']
-            self._refresh_token = response['data']['refresh_token']
-            self._access_token_expiry_time = datetime.datetime.strptime(response['data']['expires_in'], '%Y-%m-%dT%H:%M:%S.%fZ') if (response['data']['expires_in'] is not None and response['data']['expires_in'] != '') else None
+    async def _update_config_entry_tokens(self):
+        # Save latest tokens to config entry for persistence
+        config_entries = self.hass.config_entries.async_entries(DOMAIN)
+        if config_entries:
+            entry = config_entries[0]
+            data = dict(entry.data)
+            data["access_token"] = self._access_token
+            data["refresh_token"] = self._refresh_token
+            data["access_token_expiry_time"] = self._access_token_expiry_time
+            self.hass.config_entries.async_update_entry(entry, data=data)
 
 
     @handle_errors
@@ -799,7 +809,7 @@ class CLPSensor(SensorEntity):
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self) -> None:
-        if self._401_error_retry > HTTP_401_ERROR_RETRY_LIMIT:
+        if self._4xx_error_retry > HTTP_4xx_ERROR_RETRY_LIMIT:
             return
 
         await self.auth()
