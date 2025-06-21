@@ -25,12 +25,22 @@
 3. Search `CLPHK`
 4. Go through the configuration flow
 
+## Configuration flow
+
+***Starting from 21st June 2025, sign-in with `username` and `password` no long works.***
+
+1. Visit CLP sign-in page [中文](https://www.clp.com.hk/services/zh/login) / [English](https://www.clp.com.hk/services/en/login)
+2. Choose to Sign-in with ***email***
+3. Enter your email address. Click `Continue`
+4. Get the one-time-password (OTP) from email. ***DO NOT*** continue signing-in on CLP webpage.
+5. Enter the OTP during the configuration flow
+
 ## Configure in Home-Assistant
 
 | Key                                       | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
 |-------------------------------------------|---------|----------|----------------------------------------------|--------------------------|-------------------------------------------------------------------------------------|
-| `username`                                | string  | *        | Any string                                   | (N/A)                    | CLP username or account number                                                      |
-| `password`                                | string  | *        | Any string                                   | (N/A)                    | CLP account password                                                                |
+| `email`                                   | string  | *        | Any string                                   | (N/A)                    | CLP username or account number                                                      |
+| `otp`                                     | string  | *        | Any string                                   | (N/A)                    | CLP account password                                                                |
 | `name`                                    | string  |          | Any string                                   | `CLP`                    | Name of the sensor                                                                  |
 | `timeout`                                 | int     |          | Any integer                                  | `30`                     | Connection timeout in second                                                        |
 | `retry_delay`                             | int     |          | Any integer                                  | `300`                    | Delay before retry in second                                                        |
@@ -55,7 +65,7 @@
 ## Common problem
 
 - More than one `clphk` entry will cause issues. Avoid multiple entries.
-- Timeouts may occur on slower hardware. Increase `timeout` in `configuration.yaml` to mitigate.
+- Timeouts may occur on slower hardware. Increase `timeout` value to mitigate.
 
 ## Debug
 
@@ -96,5 +106,5 @@ logger:
 
 ## Tested on
 
-- Ubuntu 24.10
-- Home Assistant Container 2024.10
+- Ubuntu 24.04
+- Home Assistant Container 2025.6.1
