@@ -394,12 +394,13 @@ class CLPSensor(SensorEntity):
                 # Handle all HTTP 4xx errors (client errors)
                 if 400 <= e.status < 500:
                     self._4xx_error_retry = self._4xx_error_retry + 1
-                    self._account_number = None
-                    self._access_token = None
-                    self._refresh_token = None
-                    self._access_token_expiry_time = None
 
                     if self._4xx_error_retry > HTTP_4xx_ERROR_RETRY_LIMIT:
+                        self._account_number = None
+                        self._access_token = None
+                        self._refresh_token = None
+                        self._access_token_expiry_time = None
+
                         _LOGGER.error('HTTP 4xx error retry limit reached')
                         raise Exception('HTTP 4xx error retry limit reached')
                     
