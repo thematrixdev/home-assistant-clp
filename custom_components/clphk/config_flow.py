@@ -14,6 +14,7 @@ from homeassistant.const import (
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.helpers import config_entry_flow
 from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
@@ -64,11 +65,17 @@ class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
                 user_input["access_token"] = token_data["access_token"]
                 user_input["refresh_token"] = token_data["refresh_token"]
                 user_input["access_token_expiry_time"] = token_data.get("expires_in")
-                self._user_input.update(user_input)
-                return self.async_create_entry(title="", data=self._user_input)
+                # Update config entry data
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
+                    data={**self.config_entry.data, **user_input},
+                )
+                # Trigger reload
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                return self.async_create_entry(title=self.config_entry.title, data=user_input)
             except Exception as ex:
                 _LOGGER.exception(ex)
-                errors["base"] = "invalid_auth"
+                errors["base"] = "auth_failed"
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({

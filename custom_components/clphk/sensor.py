@@ -392,17 +392,17 @@ class CLPSensor(SensorEntity):
                 _LOGGER.error(error_message)
                 
                 # Handle all HTTP 4xx errors (client errors)
-                if 400 <= e.status < 500:
-                    self._4xx_error_retry = self._4xx_error_retry + 1
-
-                    if self._4xx_error_retry > HTTP_4xx_ERROR_RETRY_LIMIT:
-                        self._account_number = None
-                        self._access_token = None
-                        self._refresh_token = None
-                        self._access_token_expiry_time = None
-
-                        _LOGGER.error('HTTP 4xx error retry limit reached')
-                        raise Exception('HTTP 4xx error retry limit reached')
+                # if 400 <= e.status < 500:
+                #     self._4xx_error_retry = self._4xx_error_retry + 1
+                #
+                #     if self._4xx_error_retry > HTTP_4xx_ERROR_RETRY_LIMIT:
+                #         self._account_number = None
+                #         self._access_token = None
+                #         self._refresh_token = None
+                #         self._access_token_expiry_time = None
+                #
+                #         _LOGGER.error('HTTP 4xx error retry limit reached')
+                #         raise Exception('HTTP 4xx error retry limit reached')
                     
                 raise e
 
@@ -426,7 +426,7 @@ class CLPSensor(SensorEntity):
     async def auth(self):
         token_lock = self._token_state["token_lock"]
         async with token_lock:
-            if self._access_token_expiry_time and datetime.datetime.now(datetime.timezone.utc) > (datetime.datetime.strptime(self._access_token_expiry_time, '%Y-%m-%dT%H:%M:%S.%fZ') + datetime.timedelta(minutes=-1)).replace(tzinfo=datetime.timezone.utc):
+            if self._access_token_expiry_time and datetime.datetime.now(datetime.timezone.utc) > datetime.datetime.strptime(self._access_token_expiry_time, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc):
                 _LOGGER.debug(f"Refreshing access_token and refresh_token")
                 response = await self.api_request(
                     method="POST",
