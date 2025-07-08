@@ -52,30 +52,32 @@ class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
         self._user_input = dict(config_entry.options)
 
     async def async_step_init(self, user_input=None):
+        _LOGGER.debug(f"[CFG] async_step_init called with user_input={user_input}")
         errors = {}
         data = {**self.config_entry.data, **self._user_input}
         if user_input is not None:
-            # OTP verification logic during reconfiguration
             email = user_input.get("email_address")
             otp = user_input.get("otp")
             timeout = user_input.get("timeout", 30)
             session = aiohttp_client.async_get_clientsession(self.hass)
             try:
+                _LOGGER.debug(f"[CFG] Verifying OTP for email={email}, otp={otp}, timeout={timeout}")
                 token_data = await verify_otp(session, email, otp, timeout)
+                _LOGGER.debug(f"[CFG] OTP verification returned token_data={token_data}")
                 user_input["access_token"] = token_data["access_token"]
                 user_input["refresh_token"] = token_data["refresh_token"]
                 user_input["access_token_expiry_time"] = token_data.get("expires_in")
-                # Update config entry data
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
                     data={**self.config_entry.data, **user_input},
                 )
-                # Trigger reload
+                _LOGGER.debug(f"[CFG] Updated config entry with new tokens, triggering reload.")
                 await self.hass.config_entries.async_reload(self.config_entry.entry_id)
                 return self.async_create_entry(title=self.config_entry.title, data=user_input)
             except Exception as ex:
-                _LOGGER.exception(ex)
+                _LOGGER.exception(f"[CFG] OTP verification or config update failed: {ex}")
                 errors["base"] = "auth_failed"
+        _LOGGER.debug(f"[CFG] Showing config form with data={data} errors={errors}")
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({

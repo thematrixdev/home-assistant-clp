@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import datetime
 import logging
 
@@ -9,6 +10,9 @@ import async_timeout
 import homeassistant.helpers.config_validation as cv
 import pytz
 import voluptuous as vol
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from dateutil import relativedelta
 from homeassistant.components.lock import PLATFORM_SCHEMA
 from homeassistant.components.sensor import (
@@ -30,7 +34,9 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
 
+from . import verify_otp
 from .const import (
+    CONF_CLP_PUBLIC_KEY,
     CONF_DOMAIN,
     CONF_RETRY_DELAY,
 
@@ -100,7 +106,7 @@ async def async_setup_platform(
     hass.data[DOMAIN]["session"] = session
     # Set tokens on restart (if not already set)
     for k in ("access_token", "refresh_token", "access_token_expiry_time"):
-        if discovery_info.get(k) is not None:
+        if discovery_info.get(k) is not None and discovery_info.get(k) != "":
             hass.data[DOMAIN][k] = discovery_info.get(k)
     hass.data[DOMAIN]["token_lock"] = asyncio.Lock()
 
@@ -110,6 +116,7 @@ async def async_setup_platform(
                 hass=hass,
                 sensor_type='main',
                 name=discovery_info.get(CONF_NAME, "CLP"),
+                email=discovery_info.get("email", None),
                 timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
                 retry_delay=int(discovery_info.get(CONF_RETRY_DELAY, 300)),
                 type=discovery_info.get(CONF_TYPE, ""),
@@ -132,6 +139,7 @@ async def async_setup_platform(
                     hass=hass,
                     sensor_type='renewable_energy',
                     name=discovery_info.get(CONF_RES_NAME, "CLP Renewable Energy"),
+                    email=discovery_info.get("email", None),
                     timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
                     retry_delay=int(discovery_info.get(CONF_RETRY_DELAY, 300)),
                     type=discovery_info.get(CONF_RES_TYPE, ""),
@@ -232,6 +240,7 @@ class CLPSensor(SensorEntity):
             hass,
             sensor_type: str,
             name: str,
+            email: str,
             timeout: int,
             retry_delay: int,
             type: str = None,
@@ -243,9 +252,11 @@ class CLPSensor(SensorEntity):
             get_hourly: bool = False,
             get_hourly_days: int = 1,
     ) -> None:
+        _LOGGER.debug(f"[SENSOR INIT] type={sensor_type}, name={name}, email={email}, tokens={{'access_token': {getattr(self, '_access_token', None)}, 'expiry': {getattr(self, '_access_token_expiry_time', None)}}}")
         self.hass = hass
         self._sensor_type = sensor_type
         self._name = name
+        self._email = email
         self._timeout = timeout
         self._retry_delay = retry_delay
         self._type = type
@@ -358,7 +369,7 @@ class CLPSensor(SensorEntity):
             json: dict = None,
             params: dict = None
     ):
-        if not self._access_token and 'refresh_token' not in url:
+        if not self._access_token and 'eligibilityCheckAndLogin' not in url and 'refresh_token' not in url:
             raise Exception("Problematic authorization. Please configure again, or change your IP address.")
 
         if json:
@@ -390,19 +401,24 @@ class CLPSensor(SensorEntity):
                     error_message += f" (Failed to read error response: {read_error})"
                 
                 _LOGGER.error(error_message)
-                
-                # Handle all HTTP 4xx errors (client errors)
-                # if 400 <= e.status < 500:
-                #     self._4xx_error_retry = self._4xx_error_retry + 1
-                #
-                #     if self._4xx_error_retry > HTTP_4xx_ERROR_RETRY_LIMIT:
-                #         self._account_number = None
-                #         self._access_token = None
-                #         self._refresh_token = None
-                #         self._access_token_expiry_time = None
-                #
-                #         _LOGGER.error('HTTP 4xx error retry limit reached')
-                #         raise Exception('HTTP 4xx error retry limit reached')
+
+                if 400 <= e.status < 500:
+                    self._account_number = None
+                    self._access_token = None
+                    self._refresh_token = None
+                    self._access_token_expiry_time = None
+
+                    _LOGGER.debug(f"[SENSOR UPDATE] Clearing tokens from config entry.")
+                    config_entries = self.hass.config_entries.async_entries(DOMAIN)
+                    if config_entries:
+                        entry = config_entries[0]
+                        data = dict(entry.data)
+                        data["access_token"] = ""
+                        data["refresh_token"] = ""
+                        data["access_token_expiry_time"] = ""
+                        self.hass.config_entries.async_update_entry(entry, data=data)
+
+                    raise Exception('HTTP 4xx error retry limit reached')
                     
                 raise e
 
@@ -426,34 +442,102 @@ class CLPSensor(SensorEntity):
     async def auth(self):
         token_lock = self._token_state["token_lock"]
         async with token_lock:
-            if self._access_token_expiry_time and datetime.datetime.now(datetime.timezone.utc) > datetime.datetime.strptime(self._access_token_expiry_time, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc):
-                _LOGGER.debug(f"Refreshing access_token and refresh_token")
-                response = await self.api_request(
+            if not self._access_token and self.hass.states.get('sensor.clp_email_otp') is not None:
+                _LOGGER.debug("Requesting OTP")
+
+                state = self.hass.states.get('sensor.clp_email_otp')
+                original_otp = state.state if state else None
+
+                public_key = serialization.load_pem_public_key(CONF_CLP_PUBLIC_KEY.encode())
+                await self.api_request(
                     method="POST",
-                    url="https://api.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
+                    url="https://api.clp.com.hk/ts1/ms/profile/register/eligibilityCheckAndLogin",
                     json={
-                        "refreshToken": self._refresh_token,
+                        "email": base64.b64encode(public_key.encrypt(
+                            self._email.encode('utf-8'),
+                            padding.OAEP(
+                                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                                algorithm=hashes.SHA256(),
+                                label=None,
+                            )
+                        )).decode(),
+                        "phone": "",
+                        "type": base64.b64encode(public_key.encrypt(
+                            "email".encode('utf-8'),
+                            padding.OAEP(
+                                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                                algorithm=hashes.SHA256(),
+                                label=None,
+                            )
+                        )).decode(),
                     },
                 )
-                self._access_token = response['data']['access_token']
-                self._refresh_token = response['data']['refresh_token']
-                self._access_token_expiry_time = response['data']['expires_in']
-                # Persist tokens to config entry
-                await self._update_config_entry_tokens()
-                _LOGGER.debug(f"access_token: {self._access_token}")
-                _LOGGER.debug(f"refresh_token: {self._refresh_token}")
-                _LOGGER.debug(f"access_token_expiry_time: {self._access_token_expiry_time}")
 
-    async def _update_config_entry_tokens(self):
-        # Save latest tokens to config entry for persistence
-        config_entries = self.hass.config_entries.async_entries(DOMAIN)
-        if config_entries:
-            entry = config_entries[0]
-            data = dict(entry.data)
-            data["access_token"] = self._access_token
-            data["refresh_token"] = self._refresh_token
-            data["access_token_expiry_time"] = self._access_token_expiry_time
-            self.hass.config_entries.async_update_entry(entry, data=data)
+                await asyncio.sleep(10)
+
+                max_attempts = 15
+                attempt = 0
+                otp = None
+                while attempt < max_attempts:
+                    state = self.hass.states.get('sensor.clp_email_otp')
+                    otp = state.state if state else None
+
+                    if otp and otp != original_otp:
+                        break
+
+                    _LOGGER.debug(f"Waiting for OTP email (attempt {attempt+1}/{max_attempts})...")
+                    await asyncio.sleep(5)
+                    attempt += 1
+                if not otp:
+                    _LOGGER.error("OTP was not received in time. Please check your email/IMAP integration.")
+                    raise Exception("OTP not received from sensor.clp_email_otp")
+
+                try:
+                    token_data = await verify_otp(self._session, self._email, otp)
+                    self._access_token = token_data.get("access_token")
+                    self._refresh_token = token_data.get("refresh_token")
+                    self._access_token_expiry_time = token_data.get("access_token_expiry_time")
+                    _LOGGER.debug(f"Access token obtained: {self._access_token}")
+                except Exception as ex:
+                    _LOGGER.error(f"Failed to verify OTP and obtain access token: {ex}")
+                    raise
+
+            elif self._refresh_token and self._access_token_expiry_time:
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                try:
+                    expiry = datetime.datetime.strptime(self._access_token_expiry_time, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc)
+                except Exception as e:
+                    _LOGGER.error(f"Failed to parse access_token_expiry_time: {self._access_token_expiry_time}, error: {e}")
+                    expiry = None
+                _LOGGER.debug(f"[TOKEN DEBUG] now_utc={now_utc.isoformat()}, expiry={expiry}, expiry_raw={self._access_token_expiry_time}")
+                if expiry and now_utc > expiry - datetime.timedelta(minutes=1):
+                    _LOGGER.debug(f"Refreshing access_token and refresh_token")
+
+                    response = await self.api_request(
+                        method="POST",
+                        url="https://api.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
+                        json={
+                            "refreshToken": self._refresh_token,
+                        },
+                    )
+
+                    _LOGGER.debug(f"access_token: {response['data']['access_token']}")
+                    _LOGGER.debug(f"refresh_token: {response['data']['refresh_token']}")
+                    _LOGGER.debug(f"access_token_expiry_time: {response['data']['expires_in']}")
+
+                    self._access_token = response['data']['access_token']
+                    self._refresh_token = response['data']['refresh_token']
+                    self._access_token_expiry_time = response['data']['expires_in']
+
+                    _LOGGER.debug(f"[SENSOR UPDATE] Persisting refreshed tokens to config entry.")
+                    config_entries = self.hass.config_entries.async_entries(DOMAIN)
+                    if config_entries:
+                        entry = config_entries[0]
+                        data = dict(entry.data)
+                        data["access_token"] = self._access_token
+                        data["refresh_token"] = self._refresh_token
+                        data["access_token_expiry_time"] = self._access_token_expiry_time
+                        self.hass.config_entries.async_update_entry(entry, data=data)
 
 
     @handle_errors
@@ -584,7 +668,6 @@ class CLPSensor(SensorEntity):
                         'kwh': row['totKwh'],
                     })
                 self._bimonthly = sorted(bimonthly, key=lambda x: x['end'], reverse=True)
-
             self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
 
@@ -810,50 +893,64 @@ class CLPSensor(SensorEntity):
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self) -> None:
+        _LOGGER.debug(f"[SENSOR UPDATE] Starting update for {self._sensor_type}, access_token_expiry_time={self._access_token_expiry_time}")
+
         if self._4xx_error_retry > HTTP_4xx_ERROR_RETRY_LIMIT:
+            _LOGGER.debug(f"[SENSOR UPDATE] 4xx error retry limit reached, skipping update.")
             return
 
         await self.auth()
 
         if not self._access_token:
+            _LOGGER.debug(f"[SENSOR UPDATE] No access token, skipping data fetch.")
             return
 
         if self._sensor_type == 'main':
             if not self._single_task_last_fetch_time:
                 if not self._account_number or self._get_acct:
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching account detail.")
                     await self.main_get_account_detail()
 
             if not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL:
                 if self._get_bill:
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching bill.")
                     await self.main_get_bill()
 
                 if self._get_estimation:
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching estimation.")
                     await self.main_get_estimation()
 
                 if self._get_bimonthly or self._type == '' or self._type.upper() == 'BIMONTHLY':
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching bimonthly.")
                     await self.main_get_bimonthly()
 
                 if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching daily.")
                     await self.main_get_daily()
 
             if not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + HOURLY_TASK_INTERVAL:
                 if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching hourly.")
                     await self.main_get_hourly()
 
         elif self._sensor_type == 'renewable_energy':
             if not self._single_task_last_fetch_time:
                 if not self._account_number:
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching renewable account detail.")
                     await self.main_get_account_detail()
 
             if not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL:
                 if self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY':
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching renewable bimonthly.")
                     await self.renewable_get_bimonthly()
 
                 if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching renewable daily.")
                     await self.renewable_get_daily()
 
             if not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + HOURLY_TASK_INTERVAL:
                 if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
+                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching renewable hourly.")
                     await self.renewable_get_hourly()
 
         if self._type == '' and self._state_data_type is not None:
