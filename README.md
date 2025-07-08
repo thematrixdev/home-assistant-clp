@@ -104,7 +104,10 @@ However, the `token` may get invalidated from time to time.
 
 1. Install `IMAP` integration https://www.home-assistant.io/integrations/imap
 2. Configure `IMAP` integration
-  - On `Message data to be included in the imap_content event data`, check `Body text`
+   - Fill in `Username`, `Password` and `Server` according to your email provider
+   - Keep everything else default
+   - If you concern about privacy, enter `FROM "otp@info.clp.com.hk"` in `IMAP search` to expose only CLP email
+   - On `Message data to be included in the imap_content event data`, check `Body text`
 3. Update `configuration.yaml`
    - how to update `configuration.yaml`: https://www.home-assistant.io/docs/configuration/
    - add the following:
