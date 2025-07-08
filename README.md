@@ -1,12 +1,34 @@
 # CLP (HK) Statistic Home-Assistant Custom-Component
 
-## Prerequisite
+## Table of Content
+
+- [Installation](#installation)
+  - [Prerequisite](#prerequisite)
+  - [Add to HACS](#add-to-hacs)
+  - [Install](#install)
+- [Configuration](#configuration)
+  - [Configuration flow](#configuration-flow)
+  - [Configure in Home-Assistant](#configure-in-home-assistant)
+- [Re-login](#re-login)
+  - [Manual re-login](#manual-re-login)
+  - [Automatic re-login](#automatic-re-login)
+- [Others](#others)
+  - [Common problem](#common-problem)
+  - [Debug](#debug)
+    - [Basic](#basic)
+    - [Advanced](#advanced)
+  - [Support](#support)
+  - [Unofficial support](#unofficial-support)
+  - [Tested on](#tested-on)
+
+## Installation
+### Prerequisite
 
 - CLP Subscriber
 - CLP website credentials
 - CLP smart meter installed (for `HOURLY` usage data)
 
-## Add to HACS
+### Add to HACS
 
 1. Setup `HACS` https://hacs.xyz/docs/setup/prerequisites
 2. In `Home Assistant`, click `HACS` on the menu on the left
@@ -18,14 +40,16 @@
 8. Click the `DOWNLOAD` button in the bottom right hand corner
 9. Restart Home Assistant
 
-## Install
+### Install
 
 1. Go to `Settings`, `Devices and Services`
 2. Click the `Add Integration` button
 3. Search `CLPHK`
 4. Go through the configuration flow
 
-## Configuration flow
+## Configuration
+
+### Configuration flow
 
 ***Starting from 21st June 2025, sign-in with `username` and `password` no long works.***
 
@@ -35,7 +59,7 @@
 4. Get the one-time-password (OTP) from email. ***DO NOT*** continue signing-in on CLP webpage.
 5. Enter the OTP during the configuration flow
 
-## Configure in Home-Assistant
+### Configure in Home-Assistant
 
 | Key                                       | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
 |-------------------------------------------|---------|----------|----------------------------------------------|--------------------------|-------------------------------------------------------------------------------------|
@@ -62,19 +86,60 @@
 
 - It is recommended to provide `type` and `renewable_energy_sensor_type` for data consistency
 
-## Common problem
+## Re-login
+
+This integration exchanges the `OTP` for a `token`.
+
+However, the `token` may get invalidated from time to time.
+
+### Manual re-login
+
+1. Go to `Settings`, `Devices and Services`
+2. Click `CLPHK`
+3. Click `Configure`
+4. Fill in the new `OTP`
+5. Click `Submit`
+
+### Automatic re-login
+
+1. Install `IMAP` integration https://www.home-assistant.io/integrations/imap
+2. Configure `IMAP` integration
+  - On `Message data to be included in the imap_content event data`, check `Body text`
+3. Update `configuration.yaml`
+   - how to update `configuration.yaml`: https://www.home-assistant.io/docs/configuration/
+   - add the following:
+
+```yaml
+template:
+  - trigger:
+      - platform: event
+        event_type: "imap_content"
+        id: "clp_email_otp_event"
+        event_data:
+          sender: "otp@info.clp.com.hk"
+    sensor:
+      - name: clp_email_otp
+        state: "{{ trigger.event.data['text'] | regex_findall('(\\d{6})') | first }}"
+        attributes:
+          Date: "{{ trigger.event.data['date'] }}"
+```
+4. Restart Home Assistant
+
+## Others
+
+### Common problem
 
 - More than one `clphk` entry will cause issues. Avoid multiple entries.
 - Timeouts may occur on slower hardware. Increase `timeout` value to mitigate.
 
-## Debug
+### Debug
 
-### Basic
+#### Basic
 
 - On Home Assistant, go to `Settigns` -> `Logs`
 - Search `CLPHK`
 
-### Advanced
+#### Advanced
 
 - Add these lines to `configuration.yaml`
 
@@ -90,7 +155,7 @@ logger:
 - Search `CLPHK`
 - Click the `LOAD FULL LOGS` button
 
-## Support
+### Support
 
 - Open an issue on GitHub
 - Specify:
@@ -100,11 +165,11 @@ logger:
     - Configuration (without sensitive data)
     - Logs
 
-## Unofficial support
+### Unofficial support
 
 - Telegram Group https://t.me/smarthomehk
 
-## Tested on
+### Tested on
 
 - Ubuntu 24.04
 - Home Assistant Container 2025.6.1
