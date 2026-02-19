@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import datetime
+import json as jsonlib
 import logging
 
 import aiohttp
@@ -84,10 +85,25 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=300)
 DAILY_TASK_INTERVAL = datetime.timedelta(hours=12)
 HOURLY_TASK_INTERVAL = datetime.timedelta(minutes=30)
-USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 HTTP_4xx_ERROR_RETRY_LIMIT = 3
 
 DOMAIN = CONF_DOMAIN
+
+class FatalAuthError(Exception):
+    """Non-recoverable auth error that requires reconfiguration."""
+
+
+API_DEFAULT_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "application/json",
+    "Accept-Language": "en",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Referer": "https://www.clp.com.hk/",
+    "sec-ch-ua": '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Linux"',
+}
 
 
 async def async_setup_platform(
@@ -116,7 +132,7 @@ async def async_setup_platform(
                 hass=hass,
                 sensor_type='main',
                 name=discovery_info.get(CONF_NAME, "CLP"),
-                email=discovery_info.get("email", None),
+                email=discovery_info.get("email_address", discovery_info.get("email", None)),
                 timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
                 retry_delay=int(discovery_info.get(CONF_RETRY_DELAY, 300)),
                 type=discovery_info.get(CONF_TYPE, ""),
@@ -139,7 +155,7 @@ async def async_setup_platform(
                     hass=hass,
                     sensor_type='renewable_energy',
                     name=discovery_info.get(CONF_RES_NAME, "CLP Renewable Energy"),
-                    email=discovery_info.get("email", None),
+                    email=discovery_info.get("email_address", discovery_info.get("email", None)),
                     timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
                     retry_delay=int(discovery_info.get(CONF_RETRY_DELAY, 300)),
                     type=discovery_info.get(CONF_RES_TYPE, ""),
@@ -221,6 +237,10 @@ def handle_errors(func):
             error_msg = str(e)
             self._error = error_msg
             _LOGGER.error(f"{self._name} ERROR: {error_msg}", exc_info=True)
+
+            if isinstance(e, FatalAuthError):
+                _LOGGER.error("%s: Fatal auth error. Integration has been stopped.", self._name)
+                return None
             
             # Schedule next retry with exponential backoff
             next_retry_delay = self._backoff.increment()
@@ -367,7 +387,8 @@ class CLPSensor(SensorEntity):
             url: str,
             headers: dict = None,
             json: dict = None,
-            params: dict = None
+            params: dict = None,
+            retry_on_expired: bool = True,
     ):
         if not self._access_token and 'eligibilityCheckAndLogin' not in url and 'refresh_token' not in url:
             raise Exception("Problematic authorization. Please configure again, or change your IP address.")
@@ -375,11 +396,17 @@ class CLPSensor(SensorEntity):
         if json:
             _LOGGER.debug(f"REQUEST {method} {headers} {url} {params} {json}")
 
+        merged_headers = dict(API_DEFAULT_HEADERS)
+        if json is not None:
+            merged_headers["Content-Type"] = "application/json"
+        if headers:
+            merged_headers.update(headers)
+
         async with async_timeout.timeout(self._timeout):
             response = await self._session.request(
                 method,
                 url,
-                headers=headers,
+                headers=merged_headers,
                 params=params,
                 json=json,
             )
@@ -388,14 +415,15 @@ class CLPSensor(SensorEntity):
                 response.raise_for_status()
             except aiohttp.ClientResponseError as e:
                 error_message = f"{e.status} {e.request_info.url}"
+                error_data = None
                 
                 try:
                     # Try to read the response content only once and store it
                     error_content = await response.text()
                     try:
-                        error_data = json.loads(error_content)
+                        error_data = jsonlib.loads(error_content)
                         error_message += f" : {error_data}"
-                    except json.JSONDecodeError:
+                    except jsonlib.JSONDecodeError:
                         error_message += f" : {error_content}"
                 except Exception as read_error:
                     error_message += f" (Failed to read error response: {read_error})"
@@ -403,6 +431,28 @@ class CLPSensor(SensorEntity):
                 _LOGGER.error(error_message)
 
                 if 400 <= e.status < 500:
+                    # Align with webpage behavior: refresh only after token-expired response.
+                    if (
+                        retry_on_expired
+                        and "refresh_token" not in url
+                        and isinstance(error_data, dict)
+                        and error_data.get("code") == 906
+                        and self._refresh_token
+                    ):
+                        _LOGGER.debug("Access token expired (906). Refreshing and retrying once.")
+                        await self._refresh_access_token()
+                        retry_headers = dict(headers or {})
+                        if "Authorization" in retry_headers:
+                            retry_headers["Authorization"] = self._access_token
+                        return await self.api_request(
+                            method=method,
+                            url=url,
+                            headers=retry_headers,
+                            json=json,
+                            params=params,
+                            retry_on_expired=False,
+                        )
+
                     self._account_number = None
                     self._access_token = None
                     self._refresh_token = None
@@ -436,6 +486,93 @@ class CLPSensor(SensorEntity):
                 response_text = await response.text()
                 _LOGGER.error(f"{response.status} {response.url} : {response_text}")
                 raise
+
+    async def _refresh_access_token(self):
+        """Refresh access token using stored refresh token and persist it."""
+        if not self._refresh_token:
+            raise Exception("No refresh token available")
+
+        refresh_headers = dict(API_DEFAULT_HEADERS)
+        refresh_headers["Content-Type"] = "application/json"
+
+        async with async_timeout.timeout(self._timeout):
+            response = await self._session.request(
+                "POST",
+                "https://api.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
+                headers=refresh_headers,
+                json={"refreshToken": self._refresh_token},
+            )
+            response_text = await response.text()
+
+        if 400 <= response.status < 500:
+            await self._handle_refresh_auth_failure(response.status, response_text)
+            raise FatalAuthError(
+                "Refresh token invalid/expired. CLPHK integration stopped; please reconfigure tokens."
+            )
+        if response.status >= 500:
+            raise Exception(
+                f"Refresh token request failed with {response.status}: {response_text[:200]}"
+            )
+
+        try:
+            response_json = jsonlib.loads(response_text)
+        except jsonlib.JSONDecodeError as ex:
+            raise Exception(f"Refresh token response is not JSON: {response_text[:200]}") from ex
+        if not isinstance(response_json, dict) or "data" not in response_json:
+            raise Exception(f"Invalid refresh token response: {response_text[:200]}")
+        response_data = response_json["data"]
+
+        self._access_token = response_data['access_token']
+        self._refresh_token = response_data['refresh_token']
+        self._access_token_expiry_time = response_data['expires_in']
+
+        _LOGGER.debug(f"[SENSOR UPDATE] Persisting refreshed tokens to config entry.")
+        config_entries = self.hass.config_entries.async_entries(DOMAIN)
+        if config_entries:
+            entry = config_entries[0]
+            data = dict(entry.data)
+            data["access_token"] = self._access_token
+            data["refresh_token"] = self._refresh_token
+            data["access_token_expiry_time"] = self._access_token_expiry_time
+            self.hass.config_entries.async_update_entry(entry, data=data)
+
+    async def _handle_refresh_auth_failure(self, status: int, body: str):
+        """Clear tokens, notify frontend, and stop integration on refresh 4xx."""
+        self._account_number = None
+        self._access_token = None
+        self._refresh_token = None
+        self._access_token_expiry_time = None
+
+        config_entries = self.hass.config_entries.async_entries(DOMAIN)
+        for entry in config_entries:
+            data = dict(entry.data)
+            data["access_token"] = ""
+            data["refresh_token"] = ""
+            data["access_token_expiry_time"] = ""
+            self.hass.config_entries.async_update_entry(entry, data=data)
+
+        message = (
+            "CLPHK token refresh failed with HTTP "
+            f"{status}. Tokens were cleared and the integration was stopped. "
+            "Please reconfigure Access Token and Refresh Token.\n\n"
+            f"Response: {body[:300]}"
+        )
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "CLPHK Authentication Failed",
+                    "message": message,
+                    "notification_id": "clphk_auth_failed",
+                },
+                blocking=False,
+            )
+        except Exception:
+            _LOGGER.warning("Failed to create persistent notification for CLPHK auth failure.")
+
+        for entry in config_entries:
+            self.hass.async_create_task(self.hass.config_entries.async_unload(entry.entry_id))
 
 
     @handle_errors
@@ -496,48 +633,11 @@ class CLPSensor(SensorEntity):
                     token_data = await verify_otp(self._session, self._email, otp)
                     self._access_token = token_data.get("access_token")
                     self._refresh_token = token_data.get("refresh_token")
-                    self._access_token_expiry_time = token_data.get("access_token_expiry_time")
+                    self._access_token_expiry_time = token_data.get("expires_in")
                     _LOGGER.debug(f"Access token obtained: {self._access_token}")
                 except Exception as ex:
                     _LOGGER.error(f"Failed to verify OTP and obtain access token: {ex}")
                     raise
-
-            elif self._refresh_token and self._access_token_expiry_time:
-                now_utc = datetime.datetime.now(datetime.timezone.utc)
-                try:
-                    expiry = datetime.datetime.strptime(self._access_token_expiry_time, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc)
-                except Exception as e:
-                    _LOGGER.error(f"Failed to parse access_token_expiry_time: {self._access_token_expiry_time}, error: {e}")
-                    expiry = None
-                _LOGGER.debug(f"[TOKEN DEBUG] now_utc={now_utc.isoformat()}, expiry={expiry}, expiry_raw={self._access_token_expiry_time}")
-                if expiry and now_utc > expiry - datetime.timedelta(minutes=1):
-                    _LOGGER.debug(f"Refreshing access_token and refresh_token")
-
-                    response = await self.api_request(
-                        method="POST",
-                        url="https://api.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
-                        json={
-                            "refreshToken": self._refresh_token,
-                        },
-                    )
-
-                    _LOGGER.debug(f"access_token: {response['data']['access_token']}")
-                    _LOGGER.debug(f"refresh_token: {response['data']['refresh_token']}")
-                    _LOGGER.debug(f"access_token_expiry_time: {response['data']['expires_in']}")
-
-                    self._access_token = response['data']['access_token']
-                    self._refresh_token = response['data']['refresh_token']
-                    self._access_token_expiry_time = response['data']['expires_in']
-
-                    _LOGGER.debug(f"[SENSOR UPDATE] Persisting refreshed tokens to config entry.")
-                    config_entries = self.hass.config_entries.async_entries(DOMAIN)
-                    if config_entries:
-                        entry = config_entries[0]
-                        data = dict(entry.data)
-                        data["access_token"] = self._access_token
-                        data["refresh_token"] = self._refresh_token
-                        data["access_token_expiry_time"] = self._access_token_expiry_time
-                        self.hass.config_entries.async_update_entry(entry, data=data)
 
 
     @handle_errors

@@ -8,6 +8,7 @@
   - [Install](#install)
 - [Configuration](#configuration)
   - [Configuration flow](#configuration-flow)
+    - [Get tokens from Chrome](#get-tokens-from-chrome)
   - [Configure in Home-Assistant](#configure-in-home-assistant)
 - [Re-login](#re-login)
   - [Manual re-login](#manual-re-login)
@@ -51,20 +52,42 @@
 
 ### Configuration flow
 
-***Starting from 21st June 2025, sign-in with `username` and `password` no long works.***
+1. Open `Settings` -> `Devices and Services` -> `CLPHK`
+2. Step 1: Enter `Access Token` and `Refresh Token`
+3. Step 2: Configure sensor options
 
-1. Visit CLP sign-in page [中文](https://www.clp.com.hk/services/zh/login) / [English](https://www.clp.com.hk/services/en/login)
-2. Choose to Sign-in with ***email***
-3. Enter your email address. Click `Continue`
-4. Get the one-time-password (OTP) from email. ***DO NOT*** continue signing-in on CLP webpage.
-5. Enter the OTP during the configuration flow
+#### Get tokens from Chrome
+
+1. Sign in on CLP website: https://www.clp.com.hk/services/en/login
+2. Open Chrome DevTools (`F12`)
+3. Go to `Application` -> `Storage` -> `Local Storage`
+4. Select `https://www.clp.com.hk`
+5. Copy these keys:
+   - `act` -> use as `Access Token`
+   - `rct` -> use as `Refresh Token`
+
+You can paste either:
+- Full JSON object (recommended), for example `{"data":"...","time":...,"expire":"..."}`
+- JSON string value, for example `"..."` (including quotes)
+- Plain base64 token string, for example `...`
+
+#### Accepted token formats
+
+For both `Access Token` and `Refresh Token`, only these formats are accepted:
+
+1. JSON object:
+   `{"data":"<base64-token>","time":...,"expire":"..."}`
+2. JSON string:
+   `"<base64-token>"`
+3. Plain base64 string:
+   `<base64-token>`
 
 ### Configure in Home-Assistant
 
 | Key                                       | Type    | Required | Accepted Values                              | Default                  | Description                                                                         |
 |-------------------------------------------|---------|----------|----------------------------------------------|--------------------------|-------------------------------------------------------------------------------------|
-| `email`                                   | string  | *        | Any string                                   | (N/A)                    | CLP username or account number                                                      |
-| `otp`                                     | string  | *        | Any string                                   | (N/A)                    | CLP account password                                                                |
+| `access_token`                            | string  | *        | Accepted token formats above                 | (N/A)                    | CLP access token                                                                    |
+| `refresh_token`                           | string  | *        | Accepted token formats above                 | (N/A)                    | CLP refresh token                                                                   |
 | `name`                                    | string  |          | Any string                                   | `CLP`                    | Name of the sensor                                                                  |
 | `timeout`                                 | int     |          | Any integer                                  | `30`                     | Connection timeout in second                                                        |
 | `retry_delay`                             | int     |          | Any integer                                  | `300`                    | Delay before retry in second                                                        |
@@ -88,45 +111,26 @@
 
 ## Re-login
 
-This integration exchanges the `OTP` for a `token`.
-
-However, the `token` may get invalidated from time to time.
+This integration uses `access_token` + `refresh_token`.
 
 ### Manual re-login
 
 1. Go to `Settings`, `Devices and Services`
 2. Click `CLPHK`
 3. Click `Configure`
-4. Fill in the new `OTP`
+4. Fill in new `Access Token` and `Refresh Token`
 5. Click `Submit`
 
 ### Automatic re-login
 
-1. Install `IMAP` integration https://www.home-assistant.io/integrations/imap
-2. Configure `IMAP` integration
-   - Fill in `Username`, `Password` and `Server` according to your email provider
-   - Keep everything else default
-   - If you concern about privacy, enter `FROM "otp@info.clp.com.hk"` in `IMAP search` to expose only CLP email
-   - On `Message data to be included in the imap_content event data`, check `Body text`
-3. Update `configuration.yaml`
-   - how to update `configuration.yaml`: https://www.home-assistant.io/docs/configuration/
-   - add the following:
+No extra setup is required for automatic refresh.
 
-```yaml
-template:
-  - trigger:
-      - platform: event
-        event_type: "imap_content"
-        id: "clp_email_otp_event"
-        event_data:
-          sender: "otp@info.clp.com.hk"
-    sensor:
-      - name: clp_email_otp
-        state: "{{ trigger.event.data['text'] | regex_findall('(\\d{6})') | first }}"
-        attributes:
-          Date: "{{ trigger.event.data['date'] }}"
-```
-4. Restart Home Assistant
+If refresh returns HTTP `4xx`:
+- tokens are cleared
+- a persistent notification is shown in Home Assistant frontend
+- the integration is unloaded (stopped) for safety
+
+At that point, reconfigure with fresh tokens.
 
 ## Others
 
@@ -134,6 +138,7 @@ template:
 
 - More than one `clphk` entry will cause issues. Avoid multiple entries.
 - Timeouts may occur on slower hardware. Increase `timeout` value to mitigate.
+- If you see `CLPHK Authentication Failed` notification, refresh token was rejected by CLP and the integration was stopped. Reconfigure with new tokens.
 
 ### Debug
 

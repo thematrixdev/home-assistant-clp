@@ -1,0 +1,25 @@
+{
+  "config": {
+    "step": {
+      "tokens": {
+        "title": "Token Authentication",
+        "description": "Accepted formats only: {\"data\":\"...\"}, \"...\", or ... (base64 token string).",
+        "data": {
+          "access_token": "Access Token",
+          "refresh_token": "Refresh Token"
+        }
+      },
+      "options": {
+        "title": "Sensor Options"
+      }
+    },
+    "error": {
+      "invalid_auth": "Authentication failed. Please verify your token values.",
+      "access_token_invalid": "Access token is invalid. Please provide a valid token.",
+      "access_token_expired": "Access token has expired. Please refresh it and try again.",
+      "token_format_invalid": "Token format is invalid. Use only {\"data\":\"...\"}, \"...\", or ... (base64 token string).",
+      "akamai_blocked": "Request was blocked by CLP/Akamai from this environment. Try again later or from a different network.",
+      "cannot_connect": "Unable to reach CLP API. Check connectivity and try again."
+    }
+  }
+}
