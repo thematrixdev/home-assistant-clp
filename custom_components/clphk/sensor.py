@@ -431,15 +431,16 @@ class CLPSensor(SensorEntity):
                 _LOGGER.error(error_message)
 
                 if 400 <= e.status < 500:
-                    # Align with webpage behavior: refresh only after token-expired response.
+                    # Refresh on token-expired responses:
+                    # 906 = token expired, 100001 = LR access_token error (also expired)
                     if (
                         retry_on_expired
                         and "refresh_token" not in url
                         and isinstance(error_data, dict)
-                        and error_data.get("code") == 906
+                        and error_data.get("code") in (906, 100001)
                         and self._refresh_token
                     ):
-                        _LOGGER.debug("Access token expired (906). Refreshing and retrying once.")
+                        _LOGGER.debug("Access token expired (code=%s). Refreshing and retrying once.", error_data.get("code"))
                         await self._refresh_access_token()
                         retry_headers = dict(headers or {})
                         if "Authorization" in retry_headers:
