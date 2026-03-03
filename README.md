@@ -58,13 +58,17 @@
 
 #### Get tokens from Chrome
 
-1. Sign in on CLP website: https://www.clp.com.hk/services/en/login
-2. Open Chrome DevTools (`F12`)
-3. Go to `Application` -> `Storage` -> `Local Storage`
-4. Select `https://www.clp.com.hk`
-5. Copy these keys:
+1. Open an **Incognito window** (`Ctrl+Shift+N`)
+2. Go to https://www.clp.com.hk/services/en/login and sign in
+3. Open Chrome DevTools (`F12`)
+4. Go to `Application` -> `Storage` -> `Local Storage`
+5. Select `https://www.clp.com.hk`
+6. Copy these keys:
    - `act` -> use as `Access Token`
    - `rct` -> use as `Refresh Token`
+7. **Close the Incognito window** (do NOT sign out)
+
+> **WARNING**: Do NOT sign out from the CLP website. Signing out will revoke the refresh token and the integration will stop working. Always close the browser window directly after copying the tokens.
 
 You can paste either:
 - Full JSON object (recommended), for example `{"data":"...","time":...,"expire":"..."}`
