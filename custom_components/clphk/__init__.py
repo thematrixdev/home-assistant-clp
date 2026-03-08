@@ -3,7 +3,7 @@ import base64
 import logging
 
 import aiohttp
-import async_timeout
+import asyncio
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -53,7 +53,7 @@ async def request_otp(session, email, timeout=30):
         )).decode(),
     }
     try:
-        async with async_timeout.timeout(timeout):
+        async with asyncio.timeout(timeout):
             async with session.post(url, json=json_payload, headers=API_DEFAULT_HEADERS) as response:
                 response.raise_for_status()
                 data = await response.json()
@@ -74,7 +74,7 @@ async def verify_otp(session, email, otp, timeout=30):
         "otp": otp,
     }
     try:
-        async with async_timeout.timeout(timeout):
+        async with asyncio.timeout(timeout):
             async with session.post(url, json=json_payload, headers=API_DEFAULT_HEADERS) as response:
                 response.raise_for_status()
                 data = await response.json()

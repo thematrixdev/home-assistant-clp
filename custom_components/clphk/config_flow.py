@@ -7,7 +7,8 @@ import logging
 import re
 from typing import Any
 
-import async_timeout
+import asyncio
+
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import (
@@ -15,7 +16,7 @@ from homeassistant.const import (
     CONF_TIMEOUT,
     CONF_TYPE,
 )
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -227,7 +228,7 @@ async def _validate_access_token(session, token: str, timeout: int = 30) -> tupl
         "Authorization": normalized,
     }
     try:
-        async with async_timeout.timeout(timeout):
+        async with asyncio.timeout(timeout):
             async with session.get(
                 "https://api.clp.com.hk/ts1/ms/profile/accountdetails/myServicesCA",
                 headers=headers,
@@ -247,21 +248,20 @@ async def _validate_access_token(session, token: str, timeout: int = 30) -> tupl
 class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
     """Options flow: tokens -> options."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
-        self._merged_data = {**config_entry.data, **config_entry.options}
+    def __init__(self) -> None:
         self._pending: dict[str, Any] = {}
 
-    async def async_step_init(self, user_input=None) -> FlowResult:
+    async def async_step_init(self, user_input=None) -> ConfigFlowResult:
         return await self.async_step_tokens(user_input)
 
-    async def async_step_tokens(self, user_input=None) -> FlowResult:
+    async def async_step_tokens(self, user_input=None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             access_token_input = user_input[CONF_ACCESS_TOKEN]
             refresh_token_input = user_input[CONF_REFRESH_TOKEN]
+            merged = {**self.config_entry.data, **self.config_entry.options}
             session = aiohttp_client.async_get_clientsession(self.hass)
-            timeout = int(self._merged_data.get(CONF_TIMEOUT, 30))
+            timeout = int(merged.get(CONF_TIMEOUT, 30))
             normalized_access_token, error_key = await _validate_access_token(
                 session=session,
                 token=access_token_input,
@@ -279,7 +279,7 @@ class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
                     self._pending[CONF_REFRESH_TOKEN] = normalized_refresh_token
                     return await self.async_step_options()
 
-        defaults = self._merged_data
+        defaults = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(
             step_id="tokens",
             data_schema=vol.Schema(
@@ -291,7 +291,7 @@ class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
             errors=errors,
         )
 
-    async def async_step_options(self, user_input=None) -> FlowResult:
+    async def async_step_options(self, user_input=None) -> ConfigFlowResult:
         if user_input is not None:
             self.hass.config_entries.async_update_entry(
                 self.config_entry,
@@ -307,7 +307,7 @@ class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="options",
-            data_schema=_build_options_schema(self._merged_data),
+            data_schema=_build_options_schema({**self.config_entry.data, **self.config_entry.options}),
             errors={},
         )
 
@@ -320,10 +320,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
     def __init__(self) -> None:
         self._pending: dict[str, Any] = {}
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self.async_step_tokens(user_input)
 
-    async def async_step_tokens(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_tokens(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             access_token_input = user_input[CONF_ACCESS_TOKEN]
@@ -357,7 +357,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
             errors=errors,
         )
 
-    async def async_step_options(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_options(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
             data = {
                 **user_input,
@@ -374,4 +374,4 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
 
     @staticmethod
     def async_get_options_flow(config_entry):
-        return CLPHKOptionsFlowHandler(config_entry)
+        return CLPHKOptionsFlowHandler()

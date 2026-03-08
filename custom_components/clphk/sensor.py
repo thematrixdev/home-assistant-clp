@@ -7,7 +7,6 @@ import json as jsonlib
 import logging
 
 import aiohttp
-import async_timeout
 import homeassistant.helpers.config_validation as cv
 import pytz
 import voluptuous as vol
@@ -402,7 +401,7 @@ class CLPSensor(SensorEntity):
         if headers:
             merged_headers.update(headers)
 
-        async with async_timeout.timeout(self._timeout):
+        async with asyncio.timeout(self._timeout):
             response = await self._session.request(
                 method,
                 url,
@@ -501,7 +500,7 @@ class CLPSensor(SensorEntity):
         refresh_headers = dict(API_DEFAULT_HEADERS)
         refresh_headers["Content-Type"] = "application/json"
 
-        async with async_timeout.timeout(self._timeout):
+        async with asyncio.timeout(self._timeout):
             response = await self._session.request(
                 "POST",
                 "https://api.clp.com.hk/ts1/ms/profile/identity/manage/account/refresh_token",
