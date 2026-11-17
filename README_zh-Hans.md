@@ -167,3 +167,10 @@
     logs:
       custom_components.clphk: debug
   ```
+
+---
+
+## 测试环境
+
+- Home Assistant Container 2026.11.1
+- Armbian 26.8 / Debian 12 / Ubuntu 24.04 (Linux aarch64 & x86_64)
