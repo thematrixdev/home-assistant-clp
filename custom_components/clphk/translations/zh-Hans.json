@@ -24,7 +24,27 @@
         }
       },
       "options": {
-        "title": "传感器选项"
+        "title": "传感器选项",
+        "description": "配置中电数据采集项目与可再生能源设置。",
+        "data": {
+          "name": "传感器名称",
+          "timeout": "API 请求超时（秒）",
+          "type": "主要状态显示类型（如 HOURLY / DAILY / BIMONTHLY）",
+          "get_account": "获取账户摘要信息",
+          "get_bill": "获取账单记录",
+          "get_estimation": "获取用电预估",
+          "get_bimonthly": "获取双月用电数据",
+          "get_daily": "获取每日用电数据",
+          "get_hourly": "获取每小时用电数据（能源仪表盘必备）",
+          "get_hourly_days": "每小时数据抓取天数（1 或 2 天）",
+          "renewable_energy_sensor_enable": "启用可再生能源传感器（上网电价 FiT）",
+          "renewable_energy_sensor_name": "可再生能源传感器名称",
+          "renewable_energy_sensor_type": "可再生能源主要状态显示类型",
+          "renewable_energy_sensor_get_bill": "获取可再生能源账单",
+          "renewable_energy_sensor_get_daily": "获取可再生能源每日发电量",
+          "renewable_energy_sensor_get_hourly": "获取可再生能源每小时发电量",
+          "renewable_energy_sensor_get_hourly_days": "可再生能源每小时数据抓取天数（1 或 2 天）"
+        }
       }
     },
     "error": {
@@ -55,7 +75,27 @@
         }
       },
       "options": {
-        "title": "传感器选项"
+        "title": "传感器选项",
+        "description": "配置中电数据采集项目与可再生能源设置。",
+        "data": {
+          "name": "传感器名称",
+          "timeout": "API 请求超时（秒）",
+          "type": "主要状态显示类型（如 HOURLY / DAILY / BIMONTHLY）",
+          "get_account": "获取账户摘要信息",
+          "get_bill": "获取账单记录",
+          "get_estimation": "获取用电预估",
+          "get_bimonthly": "获取双月用电数据",
+          "get_daily": "获取每日用电数据",
+          "get_hourly": "获取每小时用电数据（能源仪表盘必备）",
+          "get_hourly_days": "每小时数据抓取天数（1 或 2 天）",
+          "renewable_energy_sensor_enable": "启用可再生能源传感器（上网电价 FiT）",
+          "renewable_energy_sensor_name": "可再生能源传感器名称",
+          "renewable_energy_sensor_type": "可再生能源主要状态显示类型",
+          "renewable_energy_sensor_get_bill": "获取可再生能源账单",
+          "renewable_energy_sensor_get_daily": "获取可再生能源每日发电量",
+          "renewable_energy_sensor_get_hourly": "获取可再生能源每小时发电量",
+          "renewable_energy_sensor_get_hourly_days": "可再生能源每小时数据抓取天数（1 或 2 天）"
+        }
       }
     }
   }

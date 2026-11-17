@@ -24,7 +24,27 @@
         }
       },
       "options": {
-        "title": "Sensor Options"
+        "title": "Sensor Options",
+        "description": "Configure data collection preferences and renewable energy options.",
+        "data": {
+          "name": "Sensor Name",
+          "timeout": "API Timeout (seconds)",
+          "type": "Primary State Data Type (e.g. HOURLY, DAILY, BIMONTHLY)",
+          "get_account": "Fetch Account Summary",
+          "get_bill": "Fetch Bills",
+          "get_estimation": "Fetch Usage Estimation",
+          "get_bimonthly": "Fetch Bi-monthly Usage",
+          "get_daily": "Fetch Daily Usage",
+          "get_hourly": "Fetch Hourly Usage (required for Energy Dashboard)",
+          "get_hourly_days": "Days of Hourly Data to Fetch (1 or 2)",
+          "renewable_energy_sensor_enable": "Enable Renewable Energy Sensor (Feed-in Tariff)",
+          "renewable_energy_sensor_name": "Renewable Sensor Name",
+          "renewable_energy_sensor_type": "Renewable Primary State Data Type",
+          "renewable_energy_sensor_get_bill": "Fetch Renewable Energy Bills",
+          "renewable_energy_sensor_get_daily": "Fetch Renewable Energy Daily Generation",
+          "renewable_energy_sensor_get_hourly": "Fetch Renewable Energy Hourly Generation",
+          "renewable_energy_sensor_get_hourly_days": "Days of Renewable Hourly Data to Fetch (1 or 2)"
+        }
       }
     },
     "error": {
@@ -55,7 +75,27 @@
         }
       },
       "options": {
-        "title": "Sensor Options"
+        "title": "Sensor Options",
+        "description": "Configure data collection preferences and renewable energy options.",
+        "data": {
+          "name": "Sensor Name",
+          "timeout": "API Timeout (seconds)",
+          "type": "Primary State Data Type (e.g. HOURLY, DAILY, BIMONTHLY)",
+          "get_account": "Fetch Account Summary",
+          "get_bill": "Fetch Bills",
+          "get_estimation": "Fetch Usage Estimation",
+          "get_bimonthly": "Fetch Bi-monthly Usage",
+          "get_daily": "Fetch Daily Usage",
+          "get_hourly": "Fetch Hourly Usage (required for Energy Dashboard)",
+          "get_hourly_days": "Days of Hourly Data to Fetch (1 or 2)",
+          "renewable_energy_sensor_enable": "Enable Renewable Energy Sensor (Feed-in Tariff)",
+          "renewable_energy_sensor_name": "Renewable Sensor Name",
+          "renewable_energy_sensor_type": "Renewable Primary State Data Type",
+          "renewable_energy_sensor_get_bill": "Fetch Renewable Energy Bills",
+          "renewable_energy_sensor_get_daily": "Fetch Renewable Energy Daily Generation",
+          "renewable_energy_sensor_get_hourly": "Fetch Renewable Energy Hourly Generation",
+          "renewable_energy_sensor_get_hourly_days": "Days of Renewable Hourly Data to Fetch (1 or 2)"
+        }
       }
     }
   }

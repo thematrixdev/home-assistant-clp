@@ -1,5 +1,7 @@
 # CLP (HK) Statistic Home-Assistant Custom-Component
 
+[English](README.md) | [繁體中文](README_zh-Hant.md) | [简体中文](README_zh-Hans.md)
+
 ## Table of Content
 
 - [Installation](#installation)
