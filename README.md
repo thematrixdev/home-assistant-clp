@@ -58,33 +58,43 @@
 
 #### Get tokens from Chrome
 
-1. Open an **Incognito window** (`Ctrl+Shift+N`)
+1. Open an **Incognito window** (`Ctrl+Shift+N` or `Cmd+Shift+N`)
 2. Go to https://www.clp.com.hk/services/en/login and sign in
-3. Open Chrome DevTools (`F12`)
-4. Go to `Application` -> `Storage` -> `Local Storage`
-5. Select `https://www.clp.com.hk`
-6. Copy these keys:
-   - `act` -> use as `Access Token`
-   - `rct` -> use as `Refresh Token`
-7. **Close the Incognito window** (do NOT sign out)
+3. Open Chrome DevTools (`F12` or right click -> `Inspect`)
+4. Switch to the **Console** tab, paste and execute:
+   ```javascript
+   console.log("Access Token:\n" + localStorage.getItem("act") + "\n\nRefresh Token:\n" + localStorage.getItem("rct"));
+   ```
+5. Copy the entire printed text from the console.
+6. **Close the Incognito window directly** (do NOT click "Sign Out").
+7. In Home Assistant, paste the copied block into the **"Paste All Tokens (One-Click)"** box.
+
+*(Alternatively, you can manually copy `act` and `rct` from DevTools `Application` -> `Storage` -> `Local Storage` -> `https://www.clp.com.hk`)*
 
 > **WARNING**: Do NOT sign out from the CLP website. Signing out will revoke the refresh token and the integration will stop working. Always close the browser window directly after copying the tokens.
 
-You can paste either:
-- Full JSON object (recommended), for example `{"data":"...","time":...,"expire":"..."}`
-- JSON string value, for example `"..."` (including quotes)
-- Plain base64 token string, for example `...`
+#### One-Click Paste & Accepted token formats
 
-#### Accepted token formats
+In the configuration and re-authentication dialogs, you can simply paste the full copied text into the **"Paste All Tokens (One-Click)"** field. The integration auto-parses:
+- Labeled console text containing both `Access Token:` and `Refresh Token:`
+- Single JSON dict containing `act`/`rct` or `access_token`/`refresh_token`
+- Two separate JSON objects `{"data":"...","time":...,"expire":"..."}`
+- Plain Base64 token lines
 
-For both `Access Token` and `Refresh Token`, only these formats are accepted:
+If entering separate fields manually, both `Access Token` and `Refresh Token` accept:
+1. JSON object: `{"data":"<base64-token>","time":...,"expire":"..."}`
+2. JSON string: `"<base64-token>"`
+3. Plain base64 string: `<base64-token>`
 
-1. JSON object:
-   `{"data":"<base64-token>","time":...,"expire":"..."}`
-2. JSON string:
-   `"<base64-token>"`
-3. Plain base64 string:
-   `<base64-token>`
+### Home Assistant Energy Dashboard Integration
+
+Because CLP electricity data is naturally delayed by ~3 hours, importing readings at collection time causes hourly graphs to shift by 3 hours. 
+
+This integration automatically backfills **Home Assistant Long-Term Statistics** (`clphk:main_hourly_energy`, named `CLP Hourly Energy`) with exact historical hourly timestamps directly from CLP:
+1. Go to **Settings** -> **Dashboards** -> **Energy**.
+2. Under **Electricity Grid**, click **Add Consumption**.
+3. Choose statistic **CLP Hourly Energy** (`clphk:main_hourly_energy`).
+4. Your hourly grid consumption will align accurately with true historical usage!
 
 ### Configure in Home-Assistant
 
@@ -124,16 +134,14 @@ This integration uses `access_token` + `refresh_token`.
 4. Fill in new `Access Token` and `Refresh Token`
 5. Click `Submit`
 
-### Automatic re-login
+### Automatic re-login & Re-authentication
 
 No extra setup is required for automatic refresh.
 
-If refresh returns HTTP `4xx`:
-- tokens are cleared
-- a persistent notification is shown in Home Assistant frontend
-- the integration is unloaded (stopped) for safety
-
-At that point, reconfigure with fresh tokens.
+If refresh returns HTTP `4xx` or tokens expire:
+- Tokens are cleared and a persistent notification is shown in the Home Assistant frontend.
+- A **native Re-authentication flow** is automatically triggered in Home Assistant, displaying a "Reconfigure" card on the integration.
+- Simply click "Reconfigure", paste fresh tokens into the one-click input box, and data sync will instantly resume without needing to reinstall.
 
 ## Others
 

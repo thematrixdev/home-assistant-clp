@@ -1,12 +1,26 @@
 {
   "config": {
     "step": {
+      "user": {
+        "title": "China Light & Power (CLP) Setup Guide",
+        "description": "### 📋 How to Obtain CLP Token Credentials:\n\n1. **Log in**: Open Chrome or Edge (Incognito window recommended) and log in to [CLP Online](https://www.clp.com.hk).\n2. **Open Console**: Press **F12** (or right-click and select Inspect), then switch to the **Console** tab.\n3. **Quick Copy**: Paste and run the following command in the console:\n```javascript\nconsole.log(\"Access Token:\\n\" + localStorage.getItem(\"act\") + \"\\n\\nRefresh Token:\\n\" + localStorage.getItem(\"rct\"));\n```\nCopy the entire output printed in the console.\n4. **Important Notice**:\n- Close the browser window directly when done. **DO NOT click \"Sign Out\"** (signing out will invalidate your tokens).\n- Click **\"Next\"** below and paste the copied text directly into the one-click input box."
+      },
       "tokens": {
         "title": "Token Authentication",
-        "description": "Accepted formats only: {\"data\":\"...\"}, \"...\", or ... (base64 token string).",
+        "description": "You can paste the entire copied block containing Access Token and Refresh Token into the multiline box below. The separate fields below can be left empty.",
         "data": {
-          "access_token": "Access Token",
-          "refresh_token": "Refresh Token"
+          "combined_tokens": "Paste All Tokens (One-Click)",
+          "access_token": "Access Token (optional if pasted above)",
+          "refresh_token": "Refresh Token (optional if pasted above)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate CLP Account",
+        "description": "Your CLP login credentials have expired. Follow these steps to obtain a new token:\n\n1. Log in to CLP and open Console (F12).\n2. Run `console.log(\"Access Token:\\n\" + localStorage.getItem(\"act\") + \"\\n\\nRefresh Token:\\n\" + localStorage.getItem(\"rct\"));` and copy the output.\n3. Close the browser window (do not sign out), then paste into the box below.",
+        "data": {
+          "combined_tokens": "Paste All Tokens (One-Click)",
+          "access_token": "Access Token (optional if pasted above)",
+          "refresh_token": "Refresh Token (optional if pasted above)"
         }
       },
       "options": {
@@ -14,12 +28,35 @@
       }
     },
     "error": {
-      "invalid_auth": "Authentication failed. Please verify your token values.",
+      "invalid_auth": "Authentication failed. Please check your token values.",
       "access_token_invalid": "Access token is invalid. Please provide a valid token.",
-      "access_token_expired": "Access token has expired. Please refresh it and try again.",
-      "token_format_invalid": "Token format is invalid. Use only {\"data\":\"...\"}, \"...\", or ... (base64 token string).",
-      "akamai_blocked": "Request was blocked by CLP/Akamai from this environment. Try again later or from a different network.",
-      "cannot_connect": "Unable to reach CLP API. Check connectivity and try again."
+      "access_token_expired": "Access token has expired. Please refresh your login and try again.",
+      "token_format_invalid": "Could not parse valid tokens. Ensure the input contains both Access Token and Refresh Token.",
+      "akamai_blocked": "CLP Akamai security temporarily blocked this request. Please try again later.",
+      "cannot_connect": "Unable to reach CLP API. Please check your network connection."
+    },
+    "abort": {
+      "reauth_successful": "Re-authentication successful! Electricity data sync has resumed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "CLP HK Setup Guide",
+        "description": "### 📋 How to Obtain / Update CLP Token Credentials:\n\n1. **Log in**: Open Chrome or Edge (Incognito window recommended) and sign in to [CLP Online](https://www.clp.com.hk).\n2. **Open Console**: Press **F12** and switch to the **Console** tab.\n3. **Quick Copy**: Run the following code and copy the entire output:\n```javascript\nconsole.log(\"Access Token:\\n\" + localStorage.getItem(\"act\") + \"\\n\\nRefresh Token:\\n\" + localStorage.getItem(\"rct\"));\n```\n4. **Notice**: Close the browser tab directly without signing out.\n\nClick **\"Next\"** below to enter tokens and configure sensor options."
+      },
+      "tokens": {
+        "title": "Token Authentication",
+        "description": "You can paste the entire copied block containing Access Token and Refresh Token into the multiline box below. The separate fields below can be left empty.",
+        "data": {
+          "combined_tokens": "Paste All Tokens (One-Click)",
+          "access_token": "Access Token (optional if pasted above)",
+          "refresh_token": "Refresh Token (optional if pasted above)"
+        }
+      },
+      "options": {
+        "title": "Sensor Options"
+      }
     }
   }
 }

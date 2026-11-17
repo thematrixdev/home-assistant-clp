@@ -1,4 +1,9 @@
+from __future__ import annotations
+
+import base64
 import datetime
+import json
+import re
 
 CONF_DOMAIN = 'clphk'
 
@@ -7,6 +12,83 @@ CONF_DOMAIN = 'clphk'
 AUTH_FAILURE_STATUSES = (401, 403)
 TRANSIENT_STATUSES = (408, 429)
 TOKEN_EXPIRED_CODES = (906, 100001)  # 906: access token expired; 100001: LR access_token error
+
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _try_b64_decode(value: str) -> str | None:
+    try:
+        decoded = base64.b64decode(value, validate=True).decode("utf-8")
+    except Exception:
+        return None
+    if not decoded or any(ord(ch) < 32 for ch in decoded):
+        return None
+    return decoded
+
+
+def _extract_allowed_b64_token(raw_value: str) -> str | None:
+    """Accept only: JSON object with data, JSON string, or plain base64 string."""
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, dict):
+            token = parsed.get("data")
+            if not isinstance(token, str):
+                return None
+            candidate = token.strip()
+        elif isinstance(parsed, str):
+            candidate = parsed.strip()
+        else:
+            return None
+    except Exception:
+        candidate = value
+
+    # Explicitly reject unsupported formats.
+    if candidate.startswith("Bearer "):
+        return None
+
+    decoded = _try_b64_decode(candidate)
+    if not decoded or not UUID_RE.match(decoded):
+        return None
+    return candidate
+
+
+def parse_combined_tokens(raw_text: str) -> tuple[str | None, str | None]:
+    if not raw_text or not raw_text.strip():
+        return None, None
+    text = raw_text.strip()
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            act = parsed.get("act") or parsed.get("access_token") or parsed.get("accessToken")
+            rct = parsed.get("rct") or parsed.get("refresh_token") or parsed.get("refreshToken")
+            if act and rct:
+                return str(act).strip(), str(rct).strip()
+    except Exception:
+        pass
+
+    act_match = re.search(r'(?:access[_\s-]*token|act)[\s:=]+({[^{}]*}|"[^"]+"|[A-Za-z0-9+/=_-]{30,})', text, re.IGNORECASE)
+    rct_match = re.search(r'(?:refresh[_\s-]*token|rct)[\s:=]+({[^{}]*}|"[^"]+"|[A-Za-z0-9+/=_-]{30,})', text, re.IGNORECASE)
+    if act_match and rct_match:
+        return act_match.group(1).strip(), rct_match.group(1).strip()
+
+    json_objs = re.findall(r'\{[^{}]*"data"[^{}]*\}', text)
+    if len(json_objs) >= 2:
+        return json_objs[0].strip(), json_objs[1].strip()
+
+    candidates = []
+    for line in text.splitlines():
+        token = _extract_allowed_b64_token(line)
+        if token:
+            candidates.append(token)
+    if len(candidates) >= 2:
+        return candidates[0], candidates[1]
+
+    return None, None
 
 
 def is_auth_failure(status, error_code):
@@ -84,3 +166,6 @@ CONF_RES_GET_BILL = 'renewable_energy_sensor_get_bill'
 CONF_RES_GET_DAILY = 'renewable_energy_sensor_get_daily'
 CONF_RES_GET_HOURLY = 'renewable_energy_sensor_get_hourly'
 CONF_RES_GET_HOURLY_DAYS = 'renewable_energy_sensor_get_hourly_days'
+
+CONF_COMBINED_TOKENS = 'combined_tokens'
+
