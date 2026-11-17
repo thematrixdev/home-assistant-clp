@@ -38,7 +38,7 @@
 3. Select `integrations`
 4. Click the menu button in the top right hand corner
 5. Choose `custom repositories`
-6. Enter `https://github.com/thematrixdev/home-assistant-clp` and choose `Integration`, click `ADD`
+6. Enter `https://github.com/kanshurichard/home-assistant-clp` and choose `Integration`, click `ADD`
 7. Find and click on `CLPHK` in the `custom repositories` list
 8. Click the `DOWNLOAD` button in the bottom right hand corner
 9. Restart Home Assistant

@@ -36,7 +36,7 @@
 1. 確保已安裝 [HACS](https://hacs.xyz/docs/setup/prerequisites)
 2. 在 Home Assistant 側邊欄點選 **HACS** ➔ **Integrations（整合）**
 3. 點選右上角選單按鈕（三個點） ➔ 選擇 **Custom repositories（自訂儲存庫）**
-4. 類別選擇 `Integration`，填入儲存庫網址並點擊 **新增**
+4. 類別選擇 `Integration`，填入儲存庫網址 `https://github.com/kanshurichard/home-assistant-clp` 並點擊 **新增**
 5. 在整合列表中找到 **CLPHK**，點擊右下角 **下載**
 6. 重新啟動 Home Assistant
 
