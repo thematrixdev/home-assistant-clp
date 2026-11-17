@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "中华电力 (CLP) 添加指引",
+        "description": "### 📋 如何获取中电 Token 凭证：\n\n1. **登录官网**：使用 Chrome 或 Edge 浏览器（建议无痕模式）登录 [中电官网 (CLP)](https://www.clp.com.hk)。\n2. **打开控制台**：按 **F12**（或右键点击「检查」），切换至 **Console（控制台）**。\n3. **一键获取 Token**：在控制台中粘贴并运行以下代码：\n```javascript\nconsole.log(\"Access Token:\\n\" + localStorage.getItem(\"act\") + \"\\n\\nRefresh Token:\\n\" + localStorage.getItem(\"rct\"));\n```\n复制控制台输出的全部文本内容。\n4. **重要注意事项**：\n- 获取完成后请**直接关闭网页**，**切勿点击「登出 / Sign Out」**（登出会立即使 Token 作废失效）。\n- 点击下方**「下一步」**，即可将复制的文本直接粘贴至一键输入框中。"
+      },
+      "tokens": {
+        "title": "中华电力 (CLP) 身份验证",
+        "description": "您可以直接将复制的整段内容（包含 Access Token 和 Refresh Token）粘贴至下方大文本框。下方的单独字段可留空。",
+        "data": {
+          "combined_tokens": "一键粘贴完整 Token 内容",
+          "access_token": "Access Token（若已在上方粘贴则可留空）",
+          "refresh_token": "Refresh Token（若已在上方粘贴则可留空）"
+        }
+      },
+      "reauth_confirm": {
+        "title": "重新认证中华电力账户",
+        "description": "您的中电登录凭证已过期。请按以下指引获取最新 Token 并粘贴在下方以恢复同步：\n\n1. 登录中电官网并按 F12 打开控制台 (Console)。\n2. 运行 `console.log(\"Access Token:\\n\" + localStorage.getItem(\"act\") + \"\\n\\nRefresh Token:\\n\" + localStorage.getItem(\"rct\"));` 并复制全部输出。\n3. 直接关闭网页（切勿点击登出），粘贴至下方文本框中。",
+        "data": {
+          "combined_tokens": "一键粘贴完整 Token 内容",
+          "access_token": "Access Token（若已在上方粘贴则可留空）",
+          "refresh_token": "Refresh Token（若已在上方粘贴则可留空）"
+        }
+      },
+      "options": {
+        "title": "传感器选项"
+      }
+    },
+    "error": {
+      "invalid_auth": "验证失败，请检查 Token 是否有效。",
+      "access_token_invalid": "Access Token 无效，请提供有效凭证。",
+      "access_token_expired": "Access Token 已过期，请重新登录中电网站抓取新凭证。",
+      "token_format_invalid": "无法解析有效 Token，请确认内容同时包含 Access Token 与 Refresh Token。",
+      "akamai_blocked": "中电 Akamai 安全防护暂时拦截了请求，请稍后再试。",
+      "cannot_connect": "无法连接至中电 API，请检查网络连接。"
+    },
+    "abort": {
+      "reauth_successful": "重新认证成功！用电数据已恢复同步。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "中华电力 (CLP) 配置指引",
+        "description": "### 📋 如何获取/更新中电 Token 凭证：\n\n1. **登录官网**：使用 Chrome 或 Edge 浏览器（建议无痕模式）登录 [中电官网 (CLP)](https://www.clp.com.hk)。\n2. **打开控制台**：按 **F12**，切换至 **Console（控制台）**。\n3. **一键获取 Token**：运行以下代码并复制全部输出：\n```javascript\nconsole.log(\"Access Token:\\n\" + localStorage.getItem(\"act\") + \"\\n\\nRefresh Token:\\n\" + localStorage.getItem(\"rct\"));\n```\n4. **注意事项**：获取后请**直接关闭网页**，**切勿点击登出**。\n\n点击下方**「下一步」**输入 Token 并配置传感器选项。"
+      },
+      "tokens": {
+        "title": "中华电力 (CLP) 身份验证",
+        "description": "您可以直接将复制的整段内容（包含 Access Token 和 Refresh Token）粘贴至下方大文本框。下方的单独字段可留空。",
+        "data": {
+          "combined_tokens": "一键粘贴完整 Token 内容",
+          "access_token": "Access Token（若已在上方粘贴则可留空）",
+          "refresh_token": "Refresh Token（若已在上方粘贴则可留空）"
+        }
+      },
+      "options": {
+        "title": "传感器选项"
+      }
+    }
+  }
+}

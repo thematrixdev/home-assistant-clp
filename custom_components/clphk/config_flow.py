@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from typing import Any
+from collections.abc import Mapping
 
 import asyncio
 
@@ -28,6 +29,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_COMBINED_TOKENS,
     CONF_GET_ACCT,
     CONF_GET_BILL,
     CONF_GET_BIMONTHLY,
@@ -42,6 +44,10 @@ from .const import (
     CONF_RES_GET_HOURLY_DAYS,
     CONF_RES_NAME,
     CONF_RES_TYPE,
+    UUID_RE,
+    _extract_allowed_b64_token,
+    _try_b64_decode,
+    parse_combined_tokens,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,7 +62,6 @@ API_DEFAULT_HEADERS = {
     "Accept-Language": "en",
     "Referer": "https://www.clp.com.hk/",
 }
-UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -134,44 +139,29 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-def _try_b64_decode(value: str) -> str | None:
-    try:
-        decoded = base64.b64decode(value, validate=True).decode("utf-8")
-    except Exception:
-        return None
-    if not decoded or any(ord(ch) < 32 for ch in decoded):
-        return None
-    return decoded
+
+CONF_COMBINED_TOKENS = "combined_tokens"
 
 
-def _extract_allowed_b64_token(raw_value: str) -> str | None:
-    """Accept only: JSON object with data, JSON string, or plain base64 string."""
-    value = (raw_value or "").strip()
-    if not value:
-        return None
+def _build_tokens_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_COMBINED_TOKENS,
+                default="",
+            ): TextSelector(TextSelectorConfig(multiline=True)),
+            vol.Optional(
+                CONF_ACCESS_TOKEN,
+                default=defaults.get(CONF_ACCESS_TOKEN, ""),
+            ): TextSelector(TextSelectorConfig()),
+            vol.Optional(
+                CONF_REFRESH_TOKEN,
+                default=defaults.get(CONF_REFRESH_TOKEN, ""),
+            ): TextSelector(TextSelectorConfig()),
+        }
+    )
 
-    try:
-        parsed = json.loads(value)
-        if isinstance(parsed, dict):
-            token = parsed.get("data")
-            if not isinstance(token, str):
-                return None
-            candidate = token.strip()
-        elif isinstance(parsed, str):
-            candidate = parsed.strip()
-        else:
-            return None
-    except Exception:
-        candidate = value
 
-    # Explicitly reject unsupported formats.
-    if candidate.startswith("Bearer "):
-        return None
-
-    decoded = _try_b64_decode(candidate)
-    if not decoded or not UUID_RE.match(decoded):
-        return None
-    return candidate
 
 
 def _normalize_token(raw_value: str) -> tuple[str | None, str]:
@@ -240,19 +230,29 @@ async def _validate_access_token(token: str, timeout: int = 30) -> tuple[str | N
 
 
 class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
-    """Options flow: tokens -> options."""
+    """Options flow: init (guide) -> tokens -> options."""
 
     def __init__(self) -> None:
         self._pending: dict[str, Any] = {}
 
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
-        return await self.async_step_tokens(user_input)
+        if user_input is not None:
+            return await self.async_step_tokens()
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({}),
+        )
 
     async def async_step_tokens(self, user_input=None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            access_token_input = user_input[CONF_ACCESS_TOKEN]
-            refresh_token_input = user_input[CONF_REFRESH_TOKEN]
+            combined = (user_input.get(CONF_COMBINED_TOKENS) or "").strip()
+            if combined:
+                access_token_input, refresh_token_input = parse_combined_tokens(combined)
+            else:
+                access_token_input = user_input.get(CONF_ACCESS_TOKEN)
+                refresh_token_input = user_input.get(CONF_REFRESH_TOKEN)
             merged = {**self.config_entry.data, **self.config_entry.options}
             timeout = int(merged.get(CONF_TIMEOUT, 30))
             normalized_access_token, error_key = await _validate_access_token(
@@ -274,12 +274,7 @@ class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
         defaults = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(
             step_id="tokens",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_ACCESS_TOKEN, default=defaults.get(CONF_ACCESS_TOKEN, "")): TextSelector(TextSelectorConfig()),
-                    vol.Required(CONF_REFRESH_TOKEN, default=defaults.get(CONF_REFRESH_TOKEN, "")): TextSelector(TextSelectorConfig()),
-                }
-            ),
+            data_schema=_build_tokens_schema(defaults),
             errors=errors,
         )
 
@@ -305,7 +300,7 @@ class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
-    """Setup flow: tokens -> options."""
+    """Setup flow: user (guide) -> tokens -> options."""
 
     VERSION = 1
 
@@ -313,13 +308,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
         self._pending: dict[str, Any] = {}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        return await self.async_step_tokens(user_input)
+        if user_input is not None:
+            return await self.async_step_tokens()
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema({}),
+        )
 
     async def async_step_tokens(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            access_token_input = user_input[CONF_ACCESS_TOKEN]
-            refresh_token_input = user_input[CONF_REFRESH_TOKEN]
+            combined = (user_input.get(CONF_COMBINED_TOKENS) or "").strip()
+            if combined:
+                access_token_input, refresh_token_input = parse_combined_tokens(combined)
+            else:
+                access_token_input = user_input.get(CONF_ACCESS_TOKEN)
+                refresh_token_input = user_input.get(CONF_REFRESH_TOKEN)
             normalized_access_token, error_key = await _validate_access_token(
                 token=access_token_input,
                 timeout=30,
@@ -338,12 +343,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
 
         return self.async_show_form(
             step_id="tokens",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_ACCESS_TOKEN): TextSelector(TextSelectorConfig()),
-                    vol.Required(CONF_REFRESH_TOKEN): TextSelector(TextSelectorConfig()),
-                }
-            ),
+            data_schema=_build_tokens_schema({}),
             errors=errors,
         )
 
@@ -360,6 +360,55 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
             step_id="options",
             data_schema=_build_options_schema({}),
             errors={},
+        )
+
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+        """Handle reauth flow when tokens expire."""
+        self._reauth_entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None) -> ConfigFlowResult:
+        """Dialog prompting user to paste new tokens."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            combined = (user_input.get(CONF_COMBINED_TOKENS) or "").strip()
+            if combined:
+                access_token_input, refresh_token_input = parse_combined_tokens(combined)
+            else:
+                access_token_input = user_input.get(CONF_ACCESS_TOKEN)
+                refresh_token_input = user_input.get(CONF_REFRESH_TOKEN)
+
+            if not access_token_input or not refresh_token_input:
+                errors["base"] = "token_format_invalid"
+            else:
+                normalized_access_token, error_key = await _validate_access_token(
+                    token=access_token_input,
+                    timeout=30,
+                )
+                if not normalized_access_token:
+                    errors["base"] = error_key
+                else:
+                    normalized_refresh_token, refresh_error = _normalize_token(refresh_token_input)
+                    if not normalized_refresh_token:
+                        errors["base"] = refresh_error
+                    else:
+                        if self._reauth_entry:
+                            self.hass.config_entries.async_update_entry(
+                                self._reauth_entry,
+                                data={
+                                    **self._reauth_entry.data,
+                                    CONF_ACCESS_TOKEN: normalized_access_token,
+                                    CONF_REFRESH_TOKEN: normalized_refresh_token,
+                                },
+                            )
+                            await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
+                        return self.async_abort(reason="reauth_successful")
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=_build_tokens_schema({}),
+            errors=errors,
         )
 
     @staticmethod

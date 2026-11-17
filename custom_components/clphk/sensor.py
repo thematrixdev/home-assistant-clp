@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics,
+    get_last_statistics,
+)
+
+
 import asyncio
 import datetime
 import json as jsonlib
@@ -566,8 +574,101 @@ class CLPSensor(SensorEntity):
             _LOGGER.warning("Failed to create persistent notification for CLPHK auth failure.")
 
         for entry in config_entries:
+            try:
+                self.hass.async_create_task(
+                    self.hass.config_entries.flow.async_init(
+                        DOMAIN,
+                        context={"source": "reauth", "entry_id": entry.entry_id},
+                        data=entry.data,
+                    )
+                )
+            except Exception as ex:
+                _LOGGER.debug("Could not start reauth flow: %s", ex)
             self.hass.async_create_task(self.hass.config_entries.async_unload(entry.entry_id))
 
+
+
+    async def _import_hourly_statistics(self, hourly_records: list[dict]):
+        """Import hourly energy data directly into Home Assistant Recorder Statistics.
+        Accurately aligns 3-hour delayed CLP data with its true historical time slots.
+        """
+        if not hourly_records:
+            return
+
+        statistic_id = f"{DOMAIN}:{self._sensor_type}_hourly_energy"
+        last_sum = 0.0
+        last_stat_time = None
+        try:
+            last_stats = await get_instance(self.hass).async_add_executor_job(
+                get_last_statistics, self.hass, 1, statistic_id, True, {"sum"}
+            )
+            if last_stats and statistic_id in last_stats and last_stats[statistic_id]:
+                latest = last_stats[statistic_id][0]
+                last_sum = latest.get("sum") or 0.0
+                last_stat_time = latest.get("start")
+        except Exception as ex:
+            _LOGGER.debug("Could not query last statistics for %s: %s", statistic_id, ex)
+
+        last_stat_ts = None
+        if last_stat_time is not None:
+            if isinstance(last_stat_time, (int, float)):
+                last_stat_ts = float(last_stat_time)
+            elif hasattr(last_stat_time, "timestamp"):
+                last_stat_ts = last_stat_time.timestamp()
+
+        sorted_records = sorted(
+            [r for r in hourly_records if r.get("start") and r.get("kwh") is not None],
+            key=lambda x: x["start"],
+        )
+
+        statistics: list[StatisticData] = []
+        running_sum = last_sum
+
+        for record in sorted_records:
+            start_dt = record["start"]
+            if hasattr(start_dt, "tzinfo") and start_dt.tzinfo is not None:
+                start_utc = start_dt.astimezone(datetime.timezone.utc)
+            else:
+                start_utc = self._timezone.localize(start_dt).astimezone(datetime.timezone.utc)
+
+            # Ensure start is exactly on the top of the hour
+            start_utc = start_utc.replace(minute=0, second=0, microsecond=0)
+
+            if last_stat_ts is not None and start_utc.timestamp() <= last_stat_ts:
+                continue
+
+            kwh = record["kwh"] or 0.0
+            running_sum = round(running_sum + kwh, 4)
+            statistics.append(
+                StatisticData(
+                    start=start_utc,
+                    state=kwh,
+                    sum=running_sum,
+                )
+            )
+
+        if not statistics:
+            return
+
+        metadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            mean_type=StatisticMeanType.NONE,
+            unit_class="energy",
+            name=f"{self._name} Hourly Energy",
+            source=DOMAIN,
+            statistic_id=statistic_id,
+            unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        )
+
+        _LOGGER.debug(
+            "[STATISTICS] Importing %d historical records for %s (from %s to %s)",
+            len(statistics),
+            statistic_id,
+            statistics[0]["start"],
+            statistics[-1]["start"],
+        )
+        async_add_external_statistics(self.hass, metadata, statistics)
 
     @handle_errors
     async def main_get_account_detail(self):
@@ -807,6 +908,7 @@ class CLPSensor(SensorEntity):
 
         if self._get_hourly:
             self._hourly = sorted(hourly, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
+            await self._import_hourly_statistics(hourly)
 
 
     @handle_errors
@@ -933,6 +1035,7 @@ class CLPSensor(SensorEntity):
 
         if self._get_hourly:
             self._hourly = sorted(hourly, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
+            await self._import_hourly_statistics(hourly)
 
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
