@@ -21,7 +21,6 @@
     - [Basic](#basic)
     - [Advanced](#advanced)
   - [Support](#support)
-  - [Unofficial support](#unofficial-support)
   - [Tested on](#tested-on)
 
 ## Installation
@@ -187,11 +186,7 @@ logger:
     - Configuration (without sensitive data)
     - Logs
 
-### Unofficial support
-
-- Telegram Group https://t.me/smarthomehk
-
 ### Tested on
 
-- Ubuntu 24.04
-- Home Assistant Container 2025.6.1
+- Home Assistant Container 2026.11.1
+- Armbian 26.8 / Debian 12 / Ubuntu 24.04 (Linux aarch64 & x86_64)
