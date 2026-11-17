@@ -21,6 +21,7 @@
     - [Basic](#basic)
     - [Advanced](#advanced)
   - [Support](#support)
+  - [Unofficial support](#unofficial-support)
   - [Tested on](#tested-on)
 
 ## Installation
@@ -185,6 +186,10 @@ logger:
     - CLP custom-integration version
     - Configuration (without sensitive data)
     - Logs
+
+### Unofficial support
+
+- Telegram Group https://t.me/smarthomehk
 
 ### Tested on
 
