@@ -37,7 +37,8 @@ async def async_setup(hass: HomeAssistant, config: dict):
                 for sensor in sensors:
                     if hasattr(sensor, "async_fetch_monthly_tariff"):
                         await sensor.async_fetch_monthly_tariff(force=True)
-                        sensor.async_write_ha_state()
+                        if getattr(sensor, "hass", None):
+                            sensor.async_write_ha_state()
                         for sub in getattr(sensor, "_sub_sensors", []):
                             if getattr(sub, "hass", None):
                                 sub.async_write_ha_state()
@@ -54,6 +55,7 @@ async def async_setup_entry(hass: HomeAssistant, entry):
         "access_token_expiry_time": entry.data.get("access_token_expiry_time"),
         "token_lock": asyncio.Lock(),
         "sensors": [],
+        "options": dict(entry.options),
     }
     # Keep top-level keys for backwards compatibility with any external calls
     hass.data[CONF_DOMAIN]["access_token"] = entry.data.get("access_token")
@@ -78,5 +80,11 @@ async def async_unload_entry(hass: HomeAssistant, entry):
 
 
 async def async_reload_entry(hass: HomeAssistant, entry):
-    """Reload config entry when options or data change."""
+    """Reload config entry when options change."""
+    domain_data = hass.data.get(CONF_DOMAIN, {}).get(entry.entry_id, {})
+    old_options = domain_data.get("options")
+    # If options didn't change (e.g. only data/tokens were updated by background refresh), skip reload
+    if old_options is not None and old_options == dict(entry.options):
+        _LOGGER.debug("Entry data updated (tokens persisted) without options change; skipping reload.")
+        return
     await hass.config_entries.async_reload(entry.entry_id)

@@ -34,6 +34,8 @@ from .const import (
     CONF_CUSTOM_FUEL_CENTS,
     CONF_CUSTOM_RATE_ENTITY,
     CONF_CUSTOM_SUBSIDY,
+    CONF_CUSTOM_TIER_RATES,
+    CONF_CUSTOM_TIER_LIMITS,
     CONF_GET_ACCT,
     CONF_GET_BILL,
     CONF_GET_BIMONTHLY,
@@ -87,6 +89,14 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_CUSTOM_RATE_ENTITY,
                 default=str(defaults.get(CONF_CUSTOM_RATE_ENTITY, "") or ""),
+            ): TextSelector(TextSelectorConfig()),
+            vol.Optional(
+                CONF_CUSTOM_TIER_RATES,
+                default=str(defaults.get(CONF_CUSTOM_TIER_RATES, "") or ""),
+            ): TextSelector(TextSelectorConfig()),
+            vol.Optional(
+                CONF_CUSTOM_TIER_LIMITS,
+                default=str(defaults.get(CONF_CUSTOM_TIER_LIMITS, "") or ""),
             ): TextSelector(TextSelectorConfig()),
 
             # 2. Data Sync & Sensor Preferences
@@ -155,6 +165,14 @@ def _build_setup_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_CUSTOM_RATE_ENTITY,
                 default=str(defaults.get(CONF_CUSTOM_RATE_ENTITY, "") or ""),
+            ): TextSelector(TextSelectorConfig()),
+            vol.Optional(
+                CONF_CUSTOM_TIER_RATES,
+                default=str(defaults.get(CONF_CUSTOM_TIER_RATES, "") or ""),
+            ): TextSelector(TextSelectorConfig()),
+            vol.Optional(
+                CONF_CUSTOM_TIER_LIMITS,
+                default=str(defaults.get(CONF_CUSTOM_TIER_LIMITS, "") or ""),
             ): TextSelector(TextSelectorConfig()),
 
             # 2. Data Sync & Sensor Preferences
@@ -287,6 +305,10 @@ async def _validate_access_token(token: str, timeout: int = 30) -> tuple[str | N
 class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
     """Options flow: direct options form with electricity tariff configuration & optional token update."""
 
+    def __init__(self, config_entry: config_entries.ConfigEntry | None = None) -> None:
+        if config_entry is not None:
+            self._config_entry = config_entry
+
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         defaults = {**self.config_entry.data, **self.config_entry.options}
@@ -310,7 +332,7 @@ class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
                 if not act_input or not rct_input:
                     errors["base"] = "token_format_invalid"
                 else:
-                    timeout = int(user_input.get(CONF_TIMEOUT, defaults.get(CONF_TIMEOUT, 30)))
+                    timeout = int(user_input.get(CONF_TIMEOUT) or defaults.get(CONF_TIMEOUT) or 30)
                     norm_act, error_key = await _validate_access_token(
                         token=act_input,
                         timeout=timeout,
@@ -402,12 +424,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
 
     async def async_step_options(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
+            act = self._pending.get(CONF_ACCESS_TOKEN)
+            rct = self._pending.get(CONF_REFRESH_TOKEN)
+            if not act or not rct:
+                return await self.async_step_tokens()
+
             name = (user_input.get(CONF_NAME) or "电力").strip()
             data = {
                 **user_input,
                 CONF_NAME: name,
-                CONF_ACCESS_TOKEN: self._pending[CONF_ACCESS_TOKEN],
-                CONF_REFRESH_TOKEN: self._pending[CONF_REFRESH_TOKEN],
+                CONF_ACCESS_TOKEN: act,
+                CONF_REFRESH_TOKEN: rct,
             }
             return self.async_create_entry(title=name, data=data)
 
@@ -458,7 +485,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
                                 },
                             )
                             await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
-                        return self.async_abort(reason="reauth_successful")
+                            return self.async_abort(reason="reauth_successful")
+                        return self.async_abort(reason="cannot_connect")
 
         return self.async_show_form(
             step_id="reauth_confirm",
@@ -468,4 +496,4 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
 
     @staticmethod
     def async_get_options_flow(config_entry):
-        return CLPHKOptionsFlowHandler()
+        return CLPHKOptionsFlowHandler(config_entry)

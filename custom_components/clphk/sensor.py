@@ -43,6 +43,7 @@ from .const import (
     calculate_residential_bill,
     is_auth_failure,
     is_transient,
+    parse_comma_floats,
     parse_datetime,
     parse_refresh_tokens,
     safe_float,
@@ -58,6 +59,8 @@ from .const import (
     CONF_CUSTOM_FIXED_RATE,
     CONF_CUSTOM_SUBSIDY,
     CONF_CUSTOM_RATE_ENTITY,
+    CONF_CUSTOM_TIER_RATES,
+    CONF_CUSTOM_TIER_LIMITS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -120,12 +123,15 @@ async def async_setup_platform(
         custom_fixed_rate=discovery_info.get(CONF_CUSTOM_FIXED_RATE),
         custom_subsidy=discovery_info.get(CONF_CUSTOM_SUBSIDY),
         custom_rate_entity=discovery_info.get(CONF_CUSTOM_RATE_ENTITY),
+        custom_tier_rates=discovery_info.get(CONF_CUSTOM_TIER_RATES),
+        custom_tier_limits=discovery_info.get(CONF_CUSTOM_TIER_LIMITS),
         entry_id=entry_id,
     )
 
     if entry_id and entry_id in domain_data and isinstance(domain_data[entry_id], dict):
         domain_data[entry_id].setdefault("sensors", []).append(main_sensor)
-    domain_data.setdefault("sensors", []).append(main_sensor)
+    else:
+        domain_data.setdefault("sensors", []).append(main_sensor)
     entities: list[SensorEntity] = [main_sensor]
 
     # Add child sensors for main sensor
@@ -170,7 +176,8 @@ async def async_setup_platform(
         )
         if entry_id and entry_id in domain_data and isinstance(domain_data[entry_id], dict):
             domain_data[entry_id].setdefault("sensors", []).append(res_sensor)
-        domain_data.setdefault("sensors", []).append(res_sensor)
+        else:
+            domain_data.setdefault("sensors", []).append(res_sensor)
         entities.append(res_sensor)
 
     async_add_entities(entities, update_before_add=True)
@@ -233,6 +240,8 @@ class CLPSensor(SensorEntity):
         custom_fixed_rate: float | None = None,
         custom_subsidy: float | None = None,
         custom_rate_entity: str | None = None,
+        custom_tier_rates: str | list[float] | None = None,
+        custom_tier_limits: str | list[float] | None = None,
         entry_id: str | None = None,
     ) -> None:
         _LOGGER.debug("[SENSOR INIT] type=%s, name=%s, entry_id=%s", sensor_type, name, entry_id)
@@ -253,6 +262,8 @@ class CLPSensor(SensorEntity):
         self._custom_fixed_rate = safe_float(custom_fixed_rate)
         self._custom_subsidy = safe_float(custom_subsidy)
         self._custom_rate_entity = str(custom_rate_entity).strip() if custom_rate_entity else None
+        self._custom_tier_rates = parse_comma_floats(custom_tier_rates)
+        self._custom_tier_limits = parse_comma_floats(custom_tier_limits)
         self._latest_tariff = {}
         self._tariff_last_fetch_time = None
         self._account_number = None
@@ -277,9 +288,15 @@ class CLPSensor(SensorEntity):
         self._daily_totals = {}
         self._hourly = None
 
+        self._last_reset = None
+        self._tariff_last_fetch_time = None
+        self._account_last_fetch_time = None
+        self._bill_last_fetch_time = None
+        self._estimation_last_fetch_time = None
+        self._bimonthly_last_fetch_time = None
+        self._daily_last_fetch_time = None
+        self._hourly_last_fetch_time = None
         self._single_task_last_fetch_time = None
-        self._hourly_task_last_fetch_time = None
-        self._daily_task_last_fetch_time = None
         self._no_account_warned = False
         self._multi_account_warned = False
         self._sub_sensors: list[CLPSubSensor] = []
@@ -328,6 +345,26 @@ class CLPSensor(SensorEntity):
     def custom_rate_entity(self) -> str | None:
         return self._custom_rate_entity
 
+    @property
+    def custom_tier_rates(self) -> list[float] | None:
+        return self._custom_tier_rates
+
+    @property
+    def custom_tier_limits(self) -> list[float] | None:
+        return self._custom_tier_limits
+
+    def get_effective_tier_rates(self) -> list[float]:
+        if self._custom_tier_rates:
+            return self._custom_tier_rates
+        tariff = self._latest_tariff or {}
+        return tariff.get("tier_rates") or [0.945, 1.079, 1.237, 1.545, 1.774, 1.878, 1.890]
+
+    def get_effective_tier_limits(self) -> list[float]:
+        if self._custom_tier_limits:
+            return self._custom_tier_limits
+        tariff = self._latest_tariff or {}
+        return tariff.get("tier_limits") or [400.0, 600.0, 800.0, 800.0, 800.0, 800.0]
+
     async def async_fetch_monthly_tariff(self, force: bool = False) -> dict:
         """Fetch latest residential tariff rates from CLP official API."""
         now = datetime.datetime.now(self._timezone)
@@ -347,8 +384,8 @@ class CLPSensor(SensorEntity):
                 body = {
                     "StartDate": start_date,
                     "TariffType": "DT",
-                    "OnPeakPeriod": "0000000100",
-                    "NoOfDays": "30",
+                    "OnPeakPeriod": "0000005000",
+                    "NoOfDays": "60",
                 }
                 resp = await session.post(
                     "https://www.clp.com.hk/bin/calculator/tariff/residential",
@@ -362,6 +399,16 @@ class CLPSensor(SensorEntity):
                     special_rebate = 0.0
                     energy_charge = 0.945
                     rebate = 0.172
+                    tier_rates = []
+                    tier_limits = []
+                    energy_items = [x for x in data.get("results", []) if x.get("ChargeType") == "Energy charge"]
+                    for idx, item in enumerate(energy_items):
+                        r = float(item.get("Rate", 0))
+                        tier_rates.append(round(r, 4))
+                        if idx < len(energy_items) - 1:
+                            c = float(item.get("Consumption", 0))
+                            tier_limits.append(c)
+
                     for item in data.get("results", []):
                         ct = item.get("ChargeType")
                         r = float(item.get("Rate", 0))
@@ -369,7 +416,7 @@ class CLPSensor(SensorEntity):
                             fuel_rate = round(r * 100, 2)
                         elif ct == "Special fuel rebate":
                             special_rebate = round(abs(r) * 100, 2)
-                        elif ct == "Energy charge":
+                        elif ct == "Energy charge" and not energy_charge:
                             energy_charge = r
                         elif ct == "Energy saving rebate":
                             rebate = abs(r)
@@ -378,14 +425,16 @@ class CLPSensor(SensorEntity):
                         "year_month": current_ym,
                         "fuel_cents": fuel_rate,
                         "special_fuel_rebate_cents": special_rebate,
-                        "energy_charge": energy_charge,
+                        "energy_charge": tier_rates[0] if tier_rates else energy_charge,
+                        "tier_rates": tier_rates or [0.945, 1.079, 1.237, 1.545, 1.774, 1.878, 1.890],
+                        "tier_limits": tier_limits or [400.0, 600.0, 800.0, 800.0, 800.0, 800.0],
                         "rebate": rebate,
                         "last_synced": now.isoformat(),
                     }
                     self._tariff_last_fetch_time = now
                     _LOGGER.debug(
-                        "[TARIFF] Successfully fetched CLP tariff for %04d-%02d: fuel=%.2f¢, special_rebate=%.2f¢",
-                        now.year, now.month, fuel_rate, special_rebate,
+                        "[TARIFF] Successfully fetched CLP tariff for %04d-%02d: fuel=%.2f¢, special_rebate=%.2f¢, tiers=%s",
+                        now.year, now.month, fuel_rate, special_rebate, tier_rates,
                     )
                     return self._latest_tariff
         except Exception as ex:
@@ -397,6 +446,8 @@ class CLPSensor(SensorEntity):
                 "fuel_cents": 47.4 if (now.year == 2026 and now.month >= 11) else 39.4,
                 "special_fuel_rebate_cents": 0.0,
                 "energy_charge": 0.945,
+                "tier_rates": [0.945, 1.079, 1.237, 1.545, 1.774, 1.878, 1.890],
+                "tier_limits": [400.0, 600.0, 800.0, 800.0, 800.0, 800.0],
                 "rebate": 0.172,
                 "last_synced": None,
             }
@@ -424,10 +475,13 @@ class CLPSensor(SensorEntity):
         fuel_cents = self._custom_fuel_cents if (self._custom_fuel_cents and self._custom_fuel_cents > 0) else tariff.get("fuel_cents", 47.4)
         special_rebate = tariff.get("special_fuel_rebate_cents", 0.0)
         subsidy = self._custom_subsidy or 0.0
+        tier_rates = self.get_effective_tier_rates()
+        tier_limits = self.get_effective_tier_limits()
+        has_custom_tier = bool(self._custom_tier_rates or self._custom_tier_limits)
 
-        # 3. If custom fuel cents or subsidy is set, calculate dynamically with official formula
+        # 3. If custom fuel cents, subsidy, or custom tiers are set, calculate dynamically with official formula
         est = self._estimation or {}
-        if (self._custom_fuel_cents and self._custom_fuel_cents > 0) or subsidy > 0:
+        if (self._custom_fuel_cents and self._custom_fuel_cents > 0) or subsidy > 0 or has_custom_tier:
             curr_kwh = est.get("current_consumption") or est.get("estimation_consumption") or 300.0
             calc = calculate_residential_bill(
                 kwh=curr_kwh,
@@ -435,6 +489,8 @@ class CLPSensor(SensorEntity):
                 fuel_cents=fuel_cents,
                 special_fuel_rebate_cents=special_rebate,
                 subsidy=subsidy,
+                tier_limits=tier_limits,
+                tier_rates=tier_rates,
             )
             return calc.get("effective_rate")
 
@@ -461,6 +517,8 @@ class CLPSensor(SensorEntity):
             fuel_cents=fuel_cents,
             special_fuel_rebate_cents=special_rebate,
             subsidy=subsidy,
+            tier_limits=tier_limits,
+            tier_rates=tier_rates,
         )
         return calc.get("effective_rate")
 
@@ -491,7 +549,7 @@ class CLPSensor(SensorEntity):
         return self._attr_name
 
     @property
-    def state(self):
+    def native_value(self):
         return self._attr_native_value
 
     @property
@@ -531,6 +589,8 @@ class CLPSensor(SensorEntity):
             "state_data_type": self._state_data_type,
             "error": self._error,
         }
+        if getattr(self, "_last_reset", None):
+            attr["last_reset"] = self._last_reset.isoformat() if hasattr(self._last_reset, "isoformat") else str(self._last_reset)
 
         if self._get_acct and hasattr(self, '_account'):
             attr["account"] = self._account
@@ -1057,7 +1117,13 @@ class CLPSensor(SensorEntity):
                 "Authorization": self._access_token,
             },
         )
-        active_accounts = [item for item in (response['data'] or []) if item.get('status') == 'Active']
+        active_accounts = [
+            item for item in (response.get('data') or [])
+            if str(item.get('status', '')).upper() == 'ACTIVE'
+        ]
+        if not active_accounts:
+            active_accounts = response.get('data') or []
+
         if len(active_accounts) > 1 and not self._multi_account_warned:
             _LOGGER.warning(
                 "%s: login has %d active CLP accounts; only the first is reported.",
@@ -1081,7 +1147,8 @@ class CLPSensor(SensorEntity):
             'due_date': parse_datetime(active_data.get('dueDate'), '%Y%m%d%H%M%S'),
         }
         self._no_account_warned = False
-        self._single_task_last_fetch_time = datetime.datetime.now(self._timezone)
+        self._account_last_fetch_time = datetime.datetime.now(self._timezone)
+        self._single_task_last_fetch_time = self._account_last_fetch_time
 
     @handle_errors
     async def main_get_bill(self):
@@ -1125,7 +1192,7 @@ class CLPSensor(SensorEntity):
             bills['bill'] = sorted(bills['bill'], key=lambda x: x['transaction_date'] or datetime.datetime.min, reverse=True)
             bills['payment'] = sorted(bills['payment'], key=lambda x: x['transaction_date'] or datetime.datetime.min, reverse=True)
             self._bills = bills
-            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
+            self._bill_last_fetch_time = datetime.datetime.now(self._timezone)
 
     @handle_errors
     async def main_get_estimation(self):
@@ -1153,7 +1220,7 @@ class CLPSensor(SensorEntity):
                 "estimation_end_date": parse_datetime(data.get('projectedEndDate'), '%Y%m%d%H%M%S'),
                 "estimation_start_date": parse_datetime(data.get('projectedStartDate'), '%Y%m%d%H%M%S'),
             }
-            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
+            self._estimation_last_fetch_time = datetime.datetime.now(self._timezone)
 
     @handle_errors
     async def main_get_bimonthly(self):
@@ -1180,7 +1247,7 @@ class CLPSensor(SensorEntity):
             if results and self._type.upper() == 'BIMONTHLY':
                 self._state_data_type = 'BIMONTHLY'
                 self._attr_native_value = safe_float(results[0].get('totKwh'))
-                self._attr_last_reset = parse_datetime(results[0].get('endabrpe'), '%Y%m%d')
+                self._last_reset = parse_datetime(results[0].get('endabrpe'), '%Y%m%d')
 
             if self._get_bimonthly:
                 bimonthly = []
@@ -1190,7 +1257,7 @@ class CLPSensor(SensorEntity):
                         'kwh': safe_float(row.get('totKwh')),
                     })
                 self._bimonthly = sorted(bimonthly, key=lambda x: x['end'] or datetime.datetime.min, reverse=True)
-            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
+            self._bimonthly_last_fetch_time = datetime.datetime.now(self._timezone)
 
     @handle_errors
     async def main_get_daily(self):
@@ -1198,8 +1265,8 @@ class CLPSensor(SensorEntity):
         this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         # CLP Daily API allows up to ~31 days per request.
-        # Backfill 5 months only on initial setup; subsequent 12h updates fetch current month only.
-        months_to_fetch = 5 if not getattr(self, "_daily_backfill_done", False) else 1
+        # Backfill 2 months on initial setup; subsequent 12h updates fetch current month only.
+        months_to_fetch = 2 if not getattr(self, "_daily_backfill_done", False) else 1
         all_results: list[dict] = []
         for i in range(months_to_fetch - 1, -1, -1):
             m_start = this_month - relativedelta.relativedelta(months=i)
@@ -1231,7 +1298,7 @@ class CLPSensor(SensorEntity):
             if results and self._type.upper() == 'DAILY':
                 self._state_data_type = 'DAILY'
                 self._attr_native_value = safe_float(results[-1].get('kwhTotal'))
-                self._attr_last_reset = parse_datetime(results[-1].get('expireDate'), '%Y%m%d%H%M%S')
+                self._last_reset = parse_datetime(results[-1].get('expireDate'), '%Y%m%d%H%M%S')
 
             for row in results:
                 start_str = str(row.get('startDate') or '')
@@ -1251,7 +1318,7 @@ class CLPSensor(SensorEntity):
                 self._daily = sorted(daily, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
 
             await self._import_daily_statistics(results)
-            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
+            self._daily_last_fetch_time = datetime.datetime.now(self._timezone)
 
     @handle_errors
     async def main_get_hourly(self):
@@ -1288,7 +1355,7 @@ class CLPSensor(SensorEntity):
                 if i == fetch_days and (self._type == '' or self._type.upper() == 'HOURLY'):
                     self._state_data_type = 'HOURLY'
                     self._attr_native_value = safe_float(results[-1].get('kwhTotal'))
-                    self._attr_last_reset = parse_datetime(results[-1].get('expireDate'), '%Y%m%d%H%M%S')
+                    self._last_reset = parse_datetime(results[-1].get('expireDate'), '%Y%m%d%H%M%S')
 
                 if self._get_hourly:
                     for row in results:
@@ -1327,7 +1394,7 @@ class CLPSensor(SensorEntity):
             if self._type.upper() == 'BIMONTHLY':
                 self._state_data_type = 'BIMONTHLY'
                 self._attr_native_value = safe_float(consumption_data[-1].get('kwhtotal'))
-                self._attr_last_reset = parse_datetime(consumption_data[-1].get('enddate'), '%Y%m%d%H%M%S')
+                self._last_reset = parse_datetime(consumption_data[-1].get('enddate'), '%Y%m%d%H%M%S')
 
             bills = []
             for row in consumption_data:
@@ -1337,7 +1404,7 @@ class CLPSensor(SensorEntity):
                     'kwh': safe_float(row.get('kwhtotal')),
                 })
             self._bills = sorted(bills, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
-            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
+            self._bimonthly_last_fetch_time = datetime.datetime.now(self._timezone)
 
     @handle_errors
     async def renewable_get_daily(self):
@@ -1362,7 +1429,7 @@ class CLPSensor(SensorEntity):
                     if row.get('validateStatus') == 'Y':
                         self._state_data_type = 'DAILY'
                         self._attr_native_value = safe_float(row.get('kwhtotal'))
-                        self._attr_last_reset = parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S')
+                        self._last_reset = parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S')
                         break
 
             daily = []
@@ -1374,7 +1441,7 @@ class CLPSensor(SensorEntity):
             self._daily = sorted(daily, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
 
             await self._import_daily_statistics(consumption_data)
-            self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
+            self._daily_last_fetch_time = datetime.datetime.now(self._timezone)
 
     @handle_errors
     async def renewable_get_hourly(self):
@@ -1405,7 +1472,7 @@ class CLPSensor(SensorEntity):
                         if row.get('validateStatus') == 'Y':
                             self._state_data_type = 'HOURLY'
                             self._attr_native_value = safe_float(row.get('kwhtotal'))
-                            self._attr_last_reset = parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S')
+                            self._last_reset = parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S')
                             break
 
                 for row in consumption_data:
@@ -1443,7 +1510,7 @@ class CLPSensor(SensorEntity):
             if not self._tariff_last_fetch_time or (now.year, now.month) != self._latest_tariff.get("year_month"):
                 await self.async_fetch_monthly_tariff()
 
-            if not self._single_task_last_fetch_time:
+            if not self._account_last_fetch_time or not self._account_number:
                 if not self._account_number or self._get_acct:
                     _LOGGER.debug("[SENSOR UPDATE] Fetching account detail.")
                     await self.main_get_account_detail()
@@ -1452,44 +1519,55 @@ class CLPSensor(SensorEntity):
                 _LOGGER.debug("%s: no account number; skipping data fetch this cycle.", self._name)
                 return
 
-            if not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL:
-                if self._get_bill:
-                    _LOGGER.debug("[SENSOR UPDATE] Fetching bill.")
-                    await self.main_get_bill()
+            if self._get_bill and (
+                not self._bill_last_fetch_time or now > self._bill_last_fetch_time + DAILY_TASK_INTERVAL
+            ):
+                _LOGGER.debug("[SENSOR UPDATE] Fetching bill.")
+                await self.main_get_bill()
 
-                if self._get_estimation:
-                    _LOGGER.debug("[SENSOR UPDATE] Fetching estimation.")
-                    await self.main_get_estimation()
+            if self._get_estimation and (
+                not self._estimation_last_fetch_time or now > self._estimation_last_fetch_time + DAILY_TASK_INTERVAL
+            ):
+                _LOGGER.debug("[SENSOR UPDATE] Fetching estimation.")
+                await self.main_get_estimation()
 
-                if self._get_bimonthly or self._type.upper() == 'BIMONTHLY':
-                    _LOGGER.debug("[SENSOR UPDATE] Fetching bimonthly.")
-                    await self.main_get_bimonthly()
+            if (self._get_bimonthly or self._type.upper() == 'BIMONTHLY') and (
+                not self._bimonthly_last_fetch_time or now > self._bimonthly_last_fetch_time + DAILY_TASK_INTERVAL
+            ):
+                _LOGGER.debug("[SENSOR UPDATE] Fetching bimonthly.")
+                await self.main_get_bimonthly()
 
-                if self._get_daily or self._type.upper() == 'DAILY':
-                    _LOGGER.debug("[SENSOR UPDATE] Fetching daily.")
-                    await self.main_get_daily()
+            if (self._get_daily or self._type.upper() == 'DAILY') and (
+                not self._daily_last_fetch_time or now > self._daily_last_fetch_time + DAILY_TASK_INTERVAL
+            ):
+                _LOGGER.debug("[SENSOR UPDATE] Fetching daily.")
+                await self.main_get_daily()
 
-            if not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + HOURLY_TASK_INTERVAL:
-                if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
-                    _LOGGER.debug("[SENSOR UPDATE] Fetching hourly.")
-                    await self.main_get_hourly()
+            if (self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY') and (
+                not self._hourly_last_fetch_time or now > self._hourly_last_fetch_time + HOURLY_TASK_INTERVAL
+            ):
+                _LOGGER.debug("[SENSOR UPDATE] Fetching hourly.")
+                await self.main_get_hourly()
 
         elif self._sensor_type == 'renewable_energy':
-            if not self._single_task_last_fetch_time:
-                if not self._account_number:
-                    _LOGGER.debug("[SENSOR UPDATE] Fetching renewable account detail.")
-                    await self.main_get_account_detail()
+            now = datetime.datetime.now(self._timezone)
+            if not self._account_last_fetch_time or not self._account_number:
+                _LOGGER.debug("[SENSOR UPDATE] Fetching renewable account detail.")
+                await self.main_get_account_detail()
 
             if not self._account_number:
                 _LOGGER.debug("%s: no account number; skipping renewable data fetch.", self._name)
                 return
 
-            if not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL:
-                _LOGGER.debug("[SENSOR UPDATE] Fetching renewable bimonthly & daily.")
+            if not self._bimonthly_last_fetch_time or now > self._bimonthly_last_fetch_time + DAILY_TASK_INTERVAL:
+                _LOGGER.debug("[SENSOR UPDATE] Fetching renewable bimonthly.")
                 await self.renewable_get_bimonthly()
+
+            if not self._daily_last_fetch_time or now > self._daily_last_fetch_time + DAILY_TASK_INTERVAL:
+                _LOGGER.debug("[SENSOR UPDATE] Fetching renewable daily.")
                 await self.renewable_get_daily()
 
-            if not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + HOURLY_TASK_INTERVAL:
+            if not self._hourly_last_fetch_time or now > self._hourly_last_fetch_time + HOURLY_TASK_INTERVAL:
                 _LOGGER.debug("[SENSOR UPDATE] Fetching renewable hourly.")
                 await self.renewable_get_hourly()
 
@@ -1548,9 +1626,8 @@ class CLPSubSensor(SensorEntity):
         elif self._sub_key == "outstanding":
             return acct.get("outstanding")
         elif self._sub_key == "base_tariff":
-            tariff = self._parent.latest_tariff or {}
-            base_rate = tariff.get("energy_charge", 0.945)
-            return round(float(base_rate), 4)
+            tier_rates = self._parent.get_effective_tier_rates()
+            return round(float(tier_rates[0]), 4) if tier_rates else 0.945
         elif self._sub_key == "fuel_adjustment":
             if self._parent.custom_fuel_cents is not None and self._parent.custom_fuel_cents > 0:
                 return round(self._parent.custom_fuel_cents / 100.0, 4)
@@ -1572,20 +1649,26 @@ class CLPSubSensor(SensorEntity):
                 mode = f"entity:{self._parent.custom_rate_entity}"
             elif self._parent.custom_fuel_cents and self._parent.custom_fuel_cents > 0:
                 mode = "custom_fuel"
+            elif self._parent.custom_tier_rates or self._parent.custom_tier_limits:
+                mode = "custom_tiers"
 
             fuel_cents = self._parent.custom_fuel_cents if (self._parent.custom_fuel_cents and self._parent.custom_fuel_cents > 0) else tariff.get("fuel_cents", 47.4)
             ym = tariff.get("year_month")
             tariff_period = f"{ym[0]}-{ym[1]:02d}" if isinstance(ym, (tuple, list)) and len(ym) >= 2 else None
+            tier_rates = self._parent.get_effective_tier_rates()
+            tier_limits = self._parent.get_effective_tier_limits()
             return {
                 "tariff_mode": mode,
-                "base_tariff_rate_hkd": round(float(tariff.get("energy_charge", 0.945)), 4),
+                "base_tariff_rate_hkd": round(float(tier_rates[0]), 4) if tier_rates else 0.945,
+                "tier_rates_hkd": tier_rates,
+                "tier_limits_kwh": tier_limits,
                 "fuel_clause_adjustment_cents": fuel_cents,
                 "fuel_clause_adjustment_hkd": round(fuel_cents / 100.0, 4),
                 "special_fuel_rebate_cents": tariff.get("special_fuel_rebate_cents", 0.0),
                 "energy_saving_rebate_hkd": round(float(tariff.get("rebate", 0.172)), 4),
                 "subsidy_hkd": self._parent.custom_subsidy or 0.0,
                 "tariff_period": tariff_period,
-                "calculation_basis": "Effective Rate = Estimated Total Cost / Estimated Total Consumption",
+                "calculation_basis": "Projected Effective Rate = Estimated Total Cost / Estimated Total Consumption",
                 "last_tariff_synced": tariff.get("last_synced"),
             }
         elif self._sub_key == "base_tariff":
@@ -1594,38 +1677,38 @@ class CLPSubSensor(SensorEntity):
             tariff_period = f"{ym[0]}-{ym[1]:02d}" if isinstance(ym, (tuple, list)) and len(ym) >= 2 else None
             est = self._parent.estimation or {}
             curr_kwh = est.get("current_consumption") or est.get("estimation_consumption") or 0.0
-            tier = 1
-            if curr_kwh > 4200:
-                tier = 7
-            elif curr_kwh > 3400:
-                tier = 6
-            elif curr_kwh > 2600:
-                tier = 5
-            elif curr_kwh > 1800:
-                tier = 4
-            elif curr_kwh > 1000:
-                tier = 3
-            elif curr_kwh > 400:
-                tier = 2
 
-            tier_rates = [0.945, 1.079, 1.237, 1.545, 1.774, 1.878, 1.890]
+            tier_rates = self._parent.get_effective_tier_rates()
+            tier_limits = self._parent.get_effective_tier_limits()
+
+            tier = 1
+            accum = 0.0
+            for idx, limit in enumerate(tier_limits):
+                accum += limit
+                if curr_kwh > accum:
+                    tier = idx + 2
+                else:
+                    break
+            tier = min(tier, len(tier_rates))
             current_tier_rate = tier_rates[tier - 1]
 
-            return {
-                "description": "Base tariff rate for tier 1 (first 400 kWh). See current_tier_rate for rate based on consumption.",
+            attrs = {
+                "description": f"Base tariff rate for tier 1 (first {int(tier_limits[0]) if tier_limits else 400} kWh). See current_tier_rate for rate based on consumption.",
                 "unit": "HKD/kWh",
-                "tier_1_first_400kwh": 0.945,
-                "tier_2_next_600kwh": 1.079,
-                "tier_3_next_800kwh": 1.237,
-                "tier_4_next_800kwh": 1.545,
-                "tier_5_next_800kwh": 1.774,
-                "tier_6_next_800kwh": 1.878,
-                "tier_7_above_4200kwh": 1.890,
                 "current_tier": tier,
                 "current_tier_rate": current_tier_rate,
+                "tier_rates_hkd": tier_rates,
+                "tier_limits_kwh": tier_limits,
+                "is_custom_tier_override": bool(self._parent.custom_tier_rates or self._parent.custom_tier_limits),
                 "tariff_period": tariff_period,
                 "last_tariff_synced": tariff.get("last_synced"),
             }
+            for idx, (rate, limit) in enumerate(zip(tier_rates, tier_limits)):
+                attrs[f"tier_{idx+1}_limit_kwh"] = limit
+                attrs[f"tier_{idx+1}_rate_hkd"] = rate
+            if len(tier_rates) > len(tier_limits):
+                attrs[f"tier_{len(tier_rates)}_rate_hkd"] = tier_rates[-1]
+            return attrs
         elif self._sub_key == "fuel_adjustment":
             tariff = self._parent.latest_tariff or {}
             ym = tariff.get("year_month")

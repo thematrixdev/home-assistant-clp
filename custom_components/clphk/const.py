@@ -94,7 +94,10 @@ def parse_combined_tokens(raw_text: str) -> tuple[str | None, str | None]:
 
     candidates = []
     for line in text.splitlines():
-        token = _extract_allowed_b64_token(line)
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+        token = _extract_allowed_b64_token(line_clean)
         if token:
             candidates.append(token)
     if len(candidates) >= 2:
@@ -164,6 +167,25 @@ def parse_datetime(value, fmt):
         return None
 
 
+def parse_comma_floats(value: Any) -> list[float] | None:
+    """Parse comma-separated numbers into a list of floats, or None if invalid/empty."""
+    if not value:
+        return None
+    if isinstance(value, (list, tuple)):
+        res = []
+        for x in value:
+            try:
+                res.append(float(x))
+            except (ValueError, TypeError):
+                continue
+        return res if res else None
+    try:
+        parts = [float(x.strip()) for x in str(value).split(",") if x.strip()]
+        return parts if parts else None
+    except (ValueError, TypeError):
+        return None
+
+
 def calculate_residential_bill(
     kwh: float,
     days: int = 60,
@@ -171,27 +193,14 @@ def calculate_residential_bill(
     special_fuel_rebate_cents: float = 0.0,
     subsidy: float = 0.0,
     custom_fixed_rate: float | None = None,
+    tier_limits: list[float] | None = None,
+    tier_rates: list[float] | None = None,
 ) -> dict:
-    """Calculate CLP residential electricity bill amount based on official tariff table.
+    """Calculate CLP residential electricity bill amount based on official or custom tariff table.
 
     Tiers (scaled by days/60 when days not in 55..65):
-    - First 400 kWh: 94.5 cents/kWh
-    - Next 600 kWh: 107.9 cents/kWh
-    - Next 800 kWh: 123.7 cents/kWh
-    - Next 800 kWh: 154.5 cents/kWh
-    - Next 800 kWh: 177.4 cents/kWh
-    - Next 800 kWh: 187.8 cents/kWh
-    - Above 4200 kWh: 189.0 cents/kWh
-
-    Fuel Clause Adjustment: fuel_cents / kWh
-    Special Fuel Rebate: special_fuel_rebate_cents / kWh
-    Energy Saving Rebate (when bi-monthly total <= 400 kWh):
-    - 1..200 kWh: 17.2 cents/kWh
-    - 201..300 kWh: 16.2 cents/kWh
-    - 301..400 kWh: 15.2 cents/kWh
-    Minimum charge: HK$40
-    Subsidy: deducted from total bill in HKD
-    Custom Fixed Rate: if specified (>0), uses fixed rate (HKD/kWh)
+    - Default limits (bi-monthly): [400, 600, 800, 800, 800, 800]
+    - Default rates (cents): [94.5, 107.9, 123.7, 154.5, 177.4, 187.8, 189.0]
     """
     if custom_fixed_rate is not None and custom_fixed_rate > 0:
         net_dollars = round(max(0.0, kwh * custom_fixed_rate - subsidy), 2)
@@ -205,20 +214,27 @@ def calculate_residential_bill(
             "effective_rate": round(custom_fixed_rate, 4),
         }
 
+    days = max(1, int(days))
     scale = (days / 60.0) if (days < 55 or days > 65) else 1.0
-    tier_limits = [400 * scale, 600 * scale, 800 * scale, 800 * scale, 800 * scale, 800 * scale]
-    tier_rates = [94.5, 107.9, 123.7, 154.5, 177.4, 187.8, 189.0]
+
+    raw_limits = list(tier_limits) if tier_limits else [400.0, 600.0, 800.0, 800.0, 800.0, 800.0]
+    raw_rates = list(tier_rates) if tier_rates else [94.5, 107.9, 123.7, 154.5, 177.4, 187.8, 189.0]
+    # If rates are provided in HKD/kWh (< 10), convert to cents for internal calculation
+    calc_rates = [(r * 100.0 if r < 10.0 else r) for r in raw_rates]
+    scaled_limits = [lim * scale for lim in raw_limits]
 
     remaining = max(0.0, float(kwh))
     basic_tariff_cents = 0.0
-    for limit, rate in zip(tier_limits, tier_rates):
+    for limit, rate in zip(scaled_limits, calc_rates):
         take = min(remaining, limit)
         basic_tariff_cents += take * rate
         remaining -= take
         if remaining <= 0:
             break
-    if remaining > 0:
-        basic_tariff_cents += remaining * tier_rates[-1]
+    if remaining > 0 and len(calc_rates) > len(scaled_limits):
+        basic_tariff_cents += remaining * calc_rates[-1]
+    elif remaining > 0 and calc_rates:
+        basic_tariff_cents += remaining * calc_rates[-1]
 
     fuel_cents_total = max(0.0, float(kwh)) * fuel_cents
     special_rebate_cents_total = max(0.0, float(kwh)) * special_fuel_rebate_cents
@@ -241,7 +257,8 @@ def calculate_residential_bill(
     if kwh >= 30.0:
         effective_rate = round(net_dollars / kwh, 4)
     else:
-        effective_rate = round(max(0.0, gross_dollars) / max(1.0, kwh), 4) if gross_dollars > 0 else round((94.5 + fuel_cents - 17.2) / 100.0, 4)
+        tier_1_cent = calc_rates[0] if calc_rates else 94.5
+        effective_rate = round(max(0.0, gross_dollars) / max(1.0, kwh), 4) if gross_dollars > 0 else round((tier_1_cent + fuel_cents - 17.2) / 100.0, 4)
 
     return {
         "basic_tariff": round(basic_tariff_cents / 100.0, 2),
@@ -275,4 +292,6 @@ CONF_CUSTOM_FUEL_CENTS = 'custom_fuel_cents'
 CONF_CUSTOM_FIXED_RATE = 'custom_fixed_rate'
 CONF_CUSTOM_SUBSIDY = 'custom_subsidy'
 CONF_CUSTOM_RATE_ENTITY = 'custom_rate_entity'
+CONF_CUSTOM_TIER_RATES = 'custom_tier_rates'
+CONF_CUSTOM_TIER_LIMITS = 'custom_tier_limits'
 

@@ -8,7 +8,7 @@ sys.path.insert(
     os.path.join(os.path.dirname(__file__), "..", "custom_components", "clphk"),
 )
 
-from const import calculate_residential_bill
+from const import calculate_residential_bill, parse_comma_floats
 
 class TestStatisticsImport(unittest.TestCase):
     def test_dedup_and_sort(self):
@@ -114,6 +114,28 @@ class TestStatisticsImport(unittest.TestCase):
         # Should not spike to 40 / 5 = 8.0, but stay close to standard per-kWh rate (~1.247)
         self.assertLess(res7["effective_rate"], 2.0)
         self.assertGreater(res7["effective_rate"], 1.0)
+
+        # Test Case 8: Custom tier rates and limits
+        custom_rates = [1.00, 1.20, 1.40, 1.60, 1.80, 2.00, 2.20] # in HKD/kWh
+        custom_limits = [300.0, 500.0, 700.0, 700.0, 700.0, 700.0]
+        res8 = calculate_residential_bill(200.0, 60, fuel_cents=47.4, tier_rates=custom_rates, tier_limits=custom_limits)
+        # 200 kWh <= 300 (tier 1): basic = 200 * 1.00 = 200 HKD (20000 cents)
+        # fuel = 200 * 0.474 = 94.8 HKD
+        # rebate (200 kWh <= 200): 200 * 0.172 = 34.4 HKD
+        # net = 200 + 94.8 - 34.4 = 260.40 HKD
+        self.assertEqual(res8["total"], 260.40)
+        self.assertEqual(res8["basic_tariff"], 200.00)
+
+        # Test Case 9: parse_comma_floats
+        self.assertEqual(parse_comma_floats("0.945, 1.079, 1.237"), [0.945, 1.079, 1.237])
+        self.assertEqual(parse_comma_floats([400, 600, 800]), [400.0, 600.0, 800.0])
+        self.assertIsNone(parse_comma_floats(""))
+        self.assertIsNone(parse_comma_floats(None))
+        self.assertIsNone(parse_comma_floats("abc, def"))
+
+        # Test Case 10: days <= 0 defensive boundary
+        res10 = calculate_residential_bill(100.0, 0, 47.4)
+        self.assertGreater(res10["total"], 0)
 
 if __name__ == "__main__":
     unittest.main()
