@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+try:
+    from homeassistant.components.recorder.models import StatisticMeanType
+except ImportError:
+    StatisticMeanType = None
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     get_last_statistics,
@@ -616,28 +620,28 @@ class CLPSensor(SensorEntity):
             elif hasattr(last_stat_time, "timestamp"):
                 last_stat_ts = last_stat_time.timestamp()
 
-        sorted_records = sorted(
+        # Deduplicate records by start time, keeping the latest value
+        deduped: dict[datetime.datetime, float] = {}
+        for record in sorted(
             [r for r in hourly_records if r.get("start") and r.get("kwh") is not None],
             key=lambda x: x["start"],
-        )
-
-        statistics: list[StatisticData] = []
-        running_sum = last_sum
-
-        for record in sorted_records:
+        ):
             start_dt = record["start"]
             if hasattr(start_dt, "tzinfo") and start_dt.tzinfo is not None:
                 start_utc = start_dt.astimezone(datetime.timezone.utc)
             else:
                 start_utc = self._timezone.localize(start_dt).astimezone(datetime.timezone.utc)
-
-            # Ensure start is exactly on the top of the hour
             start_utc = start_utc.replace(minute=0, second=0, microsecond=0)
+            deduped[start_utc] = record["kwh"] or 0.0
 
+        statistics: list[StatisticData] = []
+        running_sum = last_sum
+
+        for start_utc in sorted(deduped.keys()):
             if last_stat_ts is not None and start_utc.timestamp() <= last_stat_ts:
                 continue
 
-            kwh = record["kwh"] or 0.0
+            kwh = deduped[start_utc]
             running_sum = round(running_sum + kwh, 4)
             statistics.append(
                 StatisticData(
@@ -650,16 +654,19 @@ class CLPSensor(SensorEntity):
         if not statistics:
             return
 
-        metadata = StatisticMetaData(
-            has_mean=False,
-            has_sum=True,
-            mean_type=StatisticMeanType.NONE,
-            unit_class="energy",
-            name=f"{self._name} Hourly Energy",
-            source=DOMAIN,
-            statistic_id=statistic_id,
-            unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        )
+        meta_kwargs: dict = {
+            "has_mean": False,
+            "has_sum": True,
+            "name": f"{self._name} Hourly Energy",
+            "source": DOMAIN,
+            "statistic_id": statistic_id,
+            "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
+        }
+        if StatisticMeanType is not None:
+            meta_kwargs["mean_type"] = StatisticMeanType.NONE
+            meta_kwargs["unit_class"] = "energy"
+
+        metadata = StatisticMetaData(**meta_kwargs)
 
         _LOGGER.debug(
             "[STATISTICS] Importing %d historical records for %s (from %s to %s)",
@@ -866,9 +873,10 @@ class CLPSensor(SensorEntity):
     @handle_errors
     async def main_get_hourly(self):
         hourly = []
-        for i in range(1, self._get_hourly_days + 1):
-            from_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(self._get_hourly_days - i))
-            to_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(self._get_hourly_days - i - 1))
+        fetch_days = max(2, int(self._get_hourly_days or 1))
+        for i in range(1, fetch_days + 1):
+            from_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(fetch_days - i))
+            to_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(fetch_days - i - 1))
 
             if datetime.time(0, 0) <= datetime.datetime.now(self._timezone).time() < datetime.time(4, 0):
                 from_date = from_date + datetime.timedelta(days=-1)
@@ -891,7 +899,7 @@ class CLPSensor(SensorEntity):
 
             results = (response['data'] or {}).get('results') or []
             if results:
-                if i == self._get_hourly_days and (self._type == '' or self._type.upper() == 'HOURLY'):
+                if i == fetch_days and (self._type == '' or self._type.upper() == 'HOURLY'):
                     self._state_data_type = 'HOURLY'
                     self._attr_native_value = safe_float(results[-1].get('kwhTotal'))
                     self._attr_last_reset = parse_datetime(
@@ -992,8 +1000,9 @@ class CLPSensor(SensorEntity):
     @handle_errors
     async def renewable_get_hourly(self):
         hourly = []
-        for i in range(1, self._get_hourly_days + 1):
-            start_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(self._get_hourly_days - i))
+        fetch_days = max(2, int(self._get_hourly_days or 1))
+        for i in range(1, fetch_days + 1):
+            start_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(fetch_days - i))
 
             if datetime.time(0, 0) <= datetime.datetime.now(self._timezone).time() < datetime.time(4, 0):
                 start_date = start_date + datetime.timedelta(days=-1)
@@ -1013,7 +1022,7 @@ class CLPSensor(SensorEntity):
 
             consumption_data = (response['data'] or {}).get('consumptionData') or []
             if consumption_data:
-                if i == 1 and (self._type == '' or self._type.upper() == 'HOURLY'):
+                if i == fetch_days and (self._type == '' or self._type.upper() == 'HOURLY'):
                     for row in sorted(consumption_data, key=lambda x: x.get('startdate') or '', reverse=True):
                         if row.get('validateStatus') == 'Y':
                             self._state_data_type = 'HOURLY'
