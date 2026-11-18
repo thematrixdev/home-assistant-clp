@@ -1620,6 +1620,7 @@ class CLPSubSensor(SensorEntity):
         self._sub_key = sub_key
         self._attr_name = name
         self._attr_unique_id = f"clphk_{parent.sensor_type}_{sub_key}"
+        self._attr_suggested_object_id = f"clp_{sub_key}"
         self._attr_device_class = device_class
         self._attr_native_unit_of_measurement = unit_of_measurement
         self._attr_state_class = state_class
