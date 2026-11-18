@@ -71,7 +71,7 @@ API_DEFAULT_HEADERS = {
 def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
-            # 1. Electricity Tariff & Price Configuration (User Customization)
+            # 1. Electricity Tariff & Cost Configuration
             vol.Optional(
                 CONF_CUSTOM_FIXED_RATE,
                 default=float(defaults.get(CONF_CUSTOM_FIXED_RATE, 0.0) or 0.0),
@@ -89,14 +89,14 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_CUSTOM_RATE_ENTITY, ""),
             ): TextSelector(TextSelectorConfig()),
 
-            # 2. Main Sensor Data Collection Items
+            # 2. Data Sync & Sensor Preferences
             vol.Optional(
                 CONF_GET_HOURLY,
                 default=bool(defaults.get(CONF_GET_HOURLY, True)),
             ): BooleanSelector(),
             vol.Optional(
                 CONF_GET_HOURLY_DAYS,
-                default=int(defaults.get(CONF_GET_HOURLY_DAYS, 1)),
+                default=int(defaults.get(CONF_GET_HOURLY_DAYS, 2)),
             ): NumberSelector(NumberSelectorConfig(min=1, max=2, mode=NumberSelectorMode.BOX)),
             vol.Optional(
                 CONF_GET_DAILY,
@@ -110,30 +110,8 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_GET_BILL,
                 default=bool(defaults.get(CONF_GET_BILL, True)),
             ): BooleanSelector(),
-            vol.Optional(
-                CONF_GET_BIMONTHLY,
-                default=bool(defaults.get(CONF_GET_BIMONTHLY, False)),
-            ): BooleanSelector(),
-            vol.Optional(
-                CONF_GET_ACCT,
-                default=bool(defaults.get(CONF_GET_ACCT, False)),
-            ): BooleanSelector(),
 
-            # 3. Basic Preferences
-            vol.Required(
-                CONF_NAME,
-                default=defaults.get(CONF_NAME, "CLP"),
-            ): TextSelector(TextSelectorConfig()),
-            vol.Optional(
-                CONF_TIMEOUT,
-                default=int(defaults.get(CONF_TIMEOUT, 30)),
-            ): NumberSelector(NumberSelectorConfig(min=1, max=120, mode=NumberSelectorMode.BOX)),
-            vol.Optional(
-                CONF_TYPE,
-                default=defaults.get(CONF_TYPE, ""),
-            ): TextSelector(TextSelectorConfig()),
-
-            # 4. Optional Token Update (leave blank to keep current credentials unchanged)
+            # 3. Optional Token Update (leave blank to keep current credentials unchanged)
             vol.Optional(
                 CONF_COMBINED_TOKENS,
                 default="",
@@ -146,36 +124,6 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_REFRESH_TOKEN,
                 default="",
             ): TextSelector(TextSelectorConfig()),
-
-            # 5. Renewable Energy (Feed-in Tariff FiT)
-            vol.Optional(
-                CONF_RES_ENABLE,
-                default=bool(defaults.get(CONF_RES_ENABLE, False)),
-            ): BooleanSelector(),
-            vol.Optional(
-                CONF_RES_NAME,
-                default=defaults.get(CONF_RES_NAME, "CLP Renewable Energy"),
-            ): TextSelector(TextSelectorConfig()),
-            vol.Optional(
-                CONF_RES_TYPE,
-                default=defaults.get(CONF_RES_TYPE, ""),
-            ): TextSelector(TextSelectorConfig()),
-            vol.Optional(
-                CONF_RES_GET_BILL,
-                default=bool(defaults.get(CONF_RES_GET_BILL, False)),
-            ): BooleanSelector(),
-            vol.Optional(
-                CONF_RES_GET_DAILY,
-                default=bool(defaults.get(CONF_RES_GET_DAILY, False)),
-            ): BooleanSelector(),
-            vol.Optional(
-                CONF_RES_GET_HOURLY,
-                default=bool(defaults.get(CONF_RES_GET_HOURLY, False)),
-            ): BooleanSelector(),
-            vol.Optional(
-                CONF_RES_GET_HOURLY_DAYS,
-                default=int(defaults.get(CONF_RES_GET_HOURLY_DAYS, 1)),
-            ): NumberSelector(NumberSelectorConfig(min=1, max=2, mode=NumberSelectorMode.BOX)),
         }
     )
 
