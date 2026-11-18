@@ -41,6 +41,7 @@ from homeassistant.util import Throttle
 
 from .const import (
     CONF_DOMAIN,
+    DEFAULT_NAME,
     DEFAULT_TIER_LIMITS,
     DEFAULT_TIER_RATES,
     calculate_residential_bill,
@@ -114,7 +115,7 @@ async def async_setup_platform(
     main_sensor = CLPSensor(
         hass=hass,
         sensor_type="main",
-        name=discovery_info.get(CONF_NAME, "CLP"),
+        name=discovery_info.get(CONF_NAME, DEFAULT_NAME),
         timeout=int(float(discovery_info.get(CONF_TIMEOUT, 30) or 30)),
         type=discovery_info.get(CONF_TYPE, ""),
         get_acct=discovery_info.get(CONF_GET_ACCT, False),

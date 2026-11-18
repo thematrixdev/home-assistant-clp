@@ -45,6 +45,7 @@
           "refresh_token": "Update Refresh Token (optional)"
         },
         "data_description": {
+          "name": "Custom name for this CLP device and entity prefix. Default: CLP.",
           "custom_fixed_rate": "Default 0. When 0, automatically uses CLP official tiered pricing and estimation; set a positive value (e.g. 1.25) to enforce a flat rate.",
           "custom_fuel_cents": "Default 0. When 0, automatically syncs CLP latest monthly fuel adjustment charge (currently 47.4 cents); set a value to manually lock.",
           "custom_subsidy": "Default 0. Enter government electricity subsidy/rebate amount (HKD) per bi-monthly bill to deduct from projected cost.",
@@ -99,6 +100,7 @@
           "refresh_token": "Update Refresh Token (optional)"
         },
         "data_description": {
+          "name": "Custom name for this CLP device and entity prefix. Default: CLP.",
           "custom_fixed_rate": "Default 0. When 0, automatically uses CLP official tiered pricing and estimation; set a positive value (e.g. 1.25) to enforce a flat rate.",
           "custom_fuel_cents": "Default 0. When 0, automatically syncs CLP latest monthly fuel adjustment charge (currently 47.4 cents); set a value to manually lock.",
           "custom_subsidy": "Default 0. Enter government electricity subsidy/rebate amount (HKD) per bi-monthly bill to deduct from projected cost.",

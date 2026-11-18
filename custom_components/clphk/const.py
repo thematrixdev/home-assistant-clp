@@ -167,6 +167,7 @@ def parse_datetime(value, fmt):
         return None
 
 
+DEFAULT_NAME = "CLP"
 DEFAULT_TIER_RATES = [0.945, 1.079, 1.237, 1.545, 1.774, 1.878, 1.890]
 DEFAULT_TIER_LIMITS = [400.0, 600.0, 800.0, 800.0, 800.0, 800.0]
 

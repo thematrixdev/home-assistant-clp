@@ -50,6 +50,7 @@ from .const import (
     CONF_RES_GET_HOURLY_DAYS,
     CONF_RES_NAME,
     CONF_RES_TYPE,
+    DEFAULT_NAME,
     UUID_RE,
     _extract_allowed_b64_token,
     _try_b64_decode,
@@ -73,6 +74,10 @@ API_DEFAULT_HEADERS = {
 def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
+            vol.Optional(
+                CONF_NAME,
+                default=str(defaults.get(CONF_NAME, DEFAULT_NAME) or DEFAULT_NAME),
+            ): TextSelector(TextSelectorConfig()),
             # 1. Electricity Tariff & Cost Configuration
             vol.Optional(
                 CONF_CUSTOM_FIXED_RATE,
@@ -147,7 +152,7 @@ def _build_setup_schema(defaults: dict[str, Any]) -> vol.Schema:
         {
             vol.Required(
                 CONF_NAME,
-                default=str(defaults.get(CONF_NAME, "电力") or "电力"),
+                default=str(defaults.get(CONF_NAME, DEFAULT_NAME) or DEFAULT_NAME),
             ): TextSelector(TextSelectorConfig()),
             # 1. Electricity Tariff & Cost Configuration
             vol.Optional(
@@ -429,7 +434,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
             if not act or not rct:
                 return await self.async_step_tokens()
 
-            name = (user_input.get(CONF_NAME) or "电力").strip()
+            name = (user_input.get(CONF_NAME) or DEFAULT_NAME).strip()
             data = {
                 **user_input,
                 CONF_NAME: name,
