@@ -1,0 +1,3 @@
+refresh_tariff:
+  name: Refresh CLP Tariff
+  description: Immediately re-fetch and update the latest CLP official fuel adjustment charge and residential tariff rates from clp.com.hk.
