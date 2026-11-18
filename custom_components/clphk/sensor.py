@@ -1,17 +1,5 @@
 from __future__ import annotations
 
-from homeassistant.components.recorder import get_instance
-from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
-try:
-    from homeassistant.components.recorder.models import StatisticMeanType
-except ImportError:
-    StatisticMeanType = None
-from homeassistant.components.recorder.statistics import (
-    async_add_external_statistics,
-    get_last_statistics,
-)
-
-
 import asyncio
 import datetime
 import json as jsonlib
@@ -1135,92 +1123,6 @@ class CLPSensor(SensorEntity):
 
         metadata_cost = StatisticMetaData(**meta_cost_kwargs)
         async_add_external_statistics(self.hass, metadata_cost, cost_statistics)
-
-
-    async def _import_hourly_statistics(self, hourly_records: list[dict]):
-        """Import hourly energy data directly into Home Assistant Recorder Statistics.
-        Accurately aligns 3-hour delayed CLP data with its true historical time slots.
-        """
-        if not hourly_records:
-            return
-
-        statistic_id = f"{DOMAIN}:{self._sensor_type}_hourly_energy"
-        last_sum = 0.0
-        last_stat_time = None
-        try:
-            last_stats = await get_instance(self.hass).async_add_executor_job(
-                get_last_statistics, self.hass, 1, statistic_id, True, {"sum"}
-            )
-            if last_stats and statistic_id in last_stats and last_stats[statistic_id]:
-                latest = last_stats[statistic_id][0]
-                last_sum = latest.get("sum") or 0.0
-                last_stat_time = latest.get("start")
-        except Exception as ex:
-            _LOGGER.debug("Could not query last statistics for %s: %s", statistic_id, ex)
-
-        last_stat_ts = None
-        if last_stat_time is not None:
-            if isinstance(last_stat_time, (int, float)):
-                last_stat_ts = float(last_stat_time)
-            elif hasattr(last_stat_time, "timestamp"):
-                last_stat_ts = last_stat_time.timestamp()
-
-        # Deduplicate records by start time, keeping the latest value
-        deduped: dict[datetime.datetime, float] = {}
-        for record in sorted(
-            [r for r in hourly_records if r.get("start") and r.get("kwh") is not None],
-            key=lambda x: x["start"],
-        ):
-            start_dt = record["start"]
-            if hasattr(start_dt, "tzinfo") and start_dt.tzinfo is not None:
-                start_utc = start_dt.astimezone(datetime.timezone.utc)
-            else:
-                start_utc = self._timezone.localize(start_dt).astimezone(datetime.timezone.utc)
-            start_utc = start_utc.replace(minute=0, second=0, microsecond=0)
-            deduped[start_utc] = record["kwh"] or 0.0
-
-        statistics: list[StatisticData] = []
-        running_sum = last_sum
-
-        for start_utc in sorted(deduped.keys()):
-            if last_stat_ts is not None and start_utc.timestamp() <= last_stat_ts:
-                continue
-
-            kwh = deduped[start_utc]
-            running_sum = round(running_sum + kwh, 4)
-            statistics.append(
-                StatisticData(
-                    start=start_utc,
-                    state=kwh,
-                    sum=running_sum,
-                )
-            )
-
-        if not statistics:
-            return
-
-        meta_kwargs: dict = {
-            "has_mean": False,
-            "has_sum": True,
-            "name": f"{self._name} Hourly Energy",
-            "source": DOMAIN,
-            "statistic_id": statistic_id,
-            "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
-        }
-        if StatisticMeanType is not None:
-            meta_kwargs["mean_type"] = StatisticMeanType.NONE
-            meta_kwargs["unit_class"] = "energy"
-
-        metadata = StatisticMetaData(**meta_kwargs)
-
-        _LOGGER.debug(
-            "[STATISTICS] Importing %d historical records for %s (from %s to %s)",
-            len(statistics),
-            statistic_id,
-            statistics[0]["start"],
-            statistics[-1]["start"],
-        )
-        async_add_external_statistics(self.hass, metadata, statistics)
 
     @handle_errors
     async def main_get_account_detail(self):
