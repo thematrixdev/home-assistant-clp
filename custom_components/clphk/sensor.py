@@ -595,17 +595,16 @@ class CLPSensor(SensorEntity):
 
 
     async def _import_hourly_statistics(self, hourly_records: list[dict]):
-        """Import hourly energy data directly into Home Assistant Recorder Statistics.
-        Accurately aligns 3-hour delayed CLP data with its true historical time slots
-        and calibrates completed days to match CLP official daily billing totals.
+        """Import raw hourly energy data directly into Home Assistant Recorder Statistics.
+        Accurately aligns CLP data with true historical hour slots (hour-start).
         """
         if not hourly_records:
             return
 
         statistic_id = f"{DOMAIN}:{self._sensor_type}_hourly_energy"
 
-        # 1. Group records by local date and deduplicate per hour
-        records_by_day: dict[str, dict[datetime.datetime, float]] = collections.defaultdict(dict)
+        # 1. Deduplicate per hour in UTC (keeping raw hourly values)
+        raw_by_utc: dict[datetime.datetime, float] = {}
         for record in hourly_records:
             dt = record.get("start")
             kwh = record.get("kwh")
@@ -614,58 +613,20 @@ class CLPSensor(SensorEntity):
 
             if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
                 dt_utc = dt.astimezone(datetime.timezone.utc)
-                dt_local = dt.astimezone(self._timezone)
             else:
                 dt_local = self._timezone.localize(dt)
                 dt_utc = dt_local.astimezone(datetime.timezone.utc)
 
             dt_utc = dt_utc.replace(minute=0, second=0, microsecond=0)
-            day_key = dt_local.strftime("%Y%m%d")
-            records_by_day[day_key][dt_utc] = kwh
+            raw_by_utc[dt_utc] = round(kwh, 4)
 
-        if not records_by_day:
+        if not raw_by_utc:
             return
 
-        # 2. For completed days with 24 hours, calibrate against official daily total
-        calibrated_by_utc: dict[datetime.datetime, float] = {}
-        for day_key in sorted(records_by_day.keys()):
-            day_hours = records_by_day[day_key]
-            daily_target = self._daily_totals.get(day_key) if hasattr(self, "_daily_totals") else None
-
-            if daily_target is not None and len(day_hours) == 24:
-                raw_sum = sum(day_hours.values())
-                if raw_sum > 0:
-                    ratio = daily_target / raw_sum
-                    scaled_hours = {ts: round(val * ratio, 4) for ts, val in day_hours.items()}
-                    diff = round(daily_target - sum(scaled_hours.values()), 4)
-                    peak_ts = max(day_hours.keys(), key=lambda ts: day_hours[ts])
-                    scaled_hours[peak_ts] = round(scaled_hours[peak_ts] + diff, 4)
-                    calibrated_by_utc.update(scaled_hours)
-                    _LOGGER.debug(
-                        "[CALIBRATION] Day %s calibrated: raw sum=%.2f -> official daily=%.4f (diff=%.4f)",
-                        day_key, raw_sum, daily_target, diff,
-                    )
-                else:
-                    if daily_target > 0:
-                        even_val = round(daily_target / 24, 4)
-                        scaled_hours = {ts: even_val for ts in day_hours}
-                        diff = round(daily_target - sum(scaled_hours.values()), 4)
-                        first_ts = min(day_hours.keys())
-                        scaled_hours[first_ts] = round(scaled_hours[first_ts] + diff, 4)
-                        calibrated_by_utc.update(scaled_hours)
-                    else:
-                        calibrated_by_utc.update({ts: 0.0 for ts in day_hours})
-            else:
-                # Incomplete day (e.g. today) or missing daily total: keep raw hourly
-                calibrated_by_utc.update(day_hours)
-
-        all_utc_timestamps = sorted(calibrated_by_utc.keys())
-        if not all_utc_timestamps:
-            return
-
+        all_utc_timestamps = sorted(raw_by_utc.keys())
         earliest_ts = all_utc_timestamps[0].timestamp()
 
-        # 3. Query base sum before earliest_ts from recorder
+        # 2. Query base sum before earliest_ts from recorder
         base_sum = 0.0
         try:
             last_stats = await get_instance(self.hass).async_add_executor_job(
@@ -686,11 +647,11 @@ class CLPSensor(SensorEntity):
         except Exception as ex:
             _LOGGER.debug("Could not query base statistics for %s: %s", statistic_id, ex)
 
-        # 4. Build statistics list with cumulative running sum
+        # 3. Build statistics list with cumulative running sum
         statistics: list[StatisticData] = []
         running_sum = base_sum
         for ts in all_utc_timestamps:
-            kwh = calibrated_by_utc[ts]
+            kwh = raw_by_utc[ts]
             running_sum = round(running_sum + kwh, 4)
             statistics.append(
                 StatisticData(
@@ -715,7 +676,99 @@ class CLPSensor(SensorEntity):
         metadata = StatisticMetaData(**meta_kwargs)
 
         _LOGGER.debug(
-            "[STATISTICS] Importing %d historical records for %s (from %s to %s, base_sum=%.4f)",
+            "[STATISTICS] Importing %d raw hourly records for %s (from %s to %s, base_sum=%.4f)",
+            len(statistics),
+            statistic_id,
+            statistics[0]["start"],
+            statistics[-1]["start"],
+            base_sum,
+        )
+        async_add_external_statistics(self.hass, metadata, statistics)
+
+    async def _import_daily_statistics(self, daily_records: list[dict]):
+        """Import official daily energy data directly into Home Assistant Recorder Statistics.
+        Provides 100% exact daily billing figures matching official CLP totals.
+        """
+        if not daily_records:
+            return
+
+        statistic_id = f"{DOMAIN}:{self._sensor_type}_daily_energy"
+
+        daily_by_utc: dict[datetime.datetime, float] = {}
+        for record in daily_records:
+            start_str = str(record.get("startDate") or record.get("startdate") or "")
+            kwh = safe_float(record.get("kwhTotal") if self._sensor_type == "main" else record.get("kwhtotal"))
+            if len(start_str) < 8 or kwh is None:
+                continue
+
+            dt = parse_datetime(start_str[:8] + "000000", "%Y%m%d%H%M%S")
+            if not dt:
+                continue
+
+            if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+                dt_local = dt.astimezone(self._timezone)
+            else:
+                dt_local = self._timezone.localize(dt)
+            dt_utc = dt_local.astimezone(datetime.timezone.utc)
+            dt_utc = dt_utc.replace(minute=0, second=0, microsecond=0)
+            daily_by_utc[dt_utc] = round(kwh, 4)
+
+        if not daily_by_utc:
+            return
+
+        all_utc_timestamps = sorted(daily_by_utc.keys())
+        earliest_ts = all_utc_timestamps[0].timestamp()
+
+        # Query base sum before earliest_ts from recorder
+        base_sum = 0.0
+        try:
+            last_stats = await get_instance(self.hass).async_add_executor_job(
+                get_last_statistics, self.hass, 200, statistic_id, True, {"sum"}
+            )
+            if last_stats and statistic_id in last_stats:
+                for stat in last_stats[statistic_id]:
+                    s_time = stat.get("start")
+                    if isinstance(s_time, (int, float)):
+                        rec_ts = float(s_time)
+                    elif hasattr(s_time, "timestamp"):
+                        rec_ts = s_time.timestamp()
+                    else:
+                        continue
+                    if rec_ts < earliest_ts:
+                        base_sum = stat.get("sum") or 0.0
+                        break
+        except Exception as ex:
+            _LOGGER.debug("Could not query base statistics for %s: %s", statistic_id, ex)
+
+        statistics: list[StatisticData] = []
+        running_sum = base_sum
+        for ts in all_utc_timestamps:
+            kwh = daily_by_utc[ts]
+            running_sum = round(running_sum + kwh, 4)
+            statistics.append(
+                StatisticData(
+                    start=ts,
+                    state=kwh,
+                    sum=running_sum,
+                )
+            )
+
+        meta_kwargs: dict = {
+            "has_mean": False,
+            "has_sum": True,
+            "name": f"{self._name} Daily Energy",
+            "source": DOMAIN,
+            "statistic_id": statistic_id,
+            "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
+        }
+        if StatisticMeanType is not None:
+            meta_kwargs["mean_type"] = StatisticMeanType.NONE
+            meta_kwargs["unit_class"] = "energy"
+
+        metadata = StatisticMetaData(**meta_kwargs)
+
+        _LOGGER.debug(
+            "[STATISTICS] Importing %d daily records for %s (from %s to %s, base_sum=%.4f)",
             len(statistics),
             statistic_id,
             statistics[0]["start"],
@@ -921,6 +974,8 @@ class CLPSensor(SensorEntity):
                     })
                 self._daily = sorted(daily, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
 
+            await self._import_daily_statistics(results)
+
             self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
 
@@ -1055,6 +1110,8 @@ class CLPSensor(SensorEntity):
                     })
 
                 self._daily = sorted(daily, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
+
+            await self._import_daily_statistics(consumption_data)
 
             self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 

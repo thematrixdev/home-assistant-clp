@@ -17,23 +17,40 @@ class TestStatisticsImport(unittest.TestCase):
         self.assertEqual(deduped[datetime.datetime(2026, 11, 18, 1, 0, 0)], 0.15)
         self.assertEqual(deduped[datetime.datetime(2026, 11, 18, 2, 0, 0)], 0.2)
 
-    def test_daily_calibration_exact_sum(self):
-        # 24 hours of raw data summing to 5.5
+    def test_raw_hourly_statistics(self):
+        # Hourly data is 100% raw unmodified values
         raw_hours = [0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.1, 0.1, 0.1, 0.2, 0.6, 0.4, 0.3, 0.2, 0.1, 0.1, 0.2, 0.3, 0.6, 0.4, 0.3, 0.3, 0.3, 0.2]
-        self.assertEqual(sum(raw_hours), 5.5)
+        records = [{"start": datetime.datetime(2026, 11, 17, i, 0, 0), "kwh": raw_hours[i]} for i in range(24)]
+        
+        raw_by_utc = {r["start"]: round(r["kwh"], 4) for r in records}
+        self.assertEqual(len(raw_by_utc), 24)
+        self.assertEqual(raw_by_utc[datetime.datetime(2026, 11, 17, 10, 0, 0)], 0.6)
+        # Running sum test
+        running_sum = 0.0
+        for ts in sorted(raw_by_utc.keys()):
+            running_sum = round(running_sum + raw_by_utc[ts], 4)
+        self.assertEqual(running_sum, 5.5)
 
-        daily_target = 5.3
-        day_hours = {datetime.datetime(2026, 11, 17, i, 0, 0): raw_hours[i] for i in range(24)}
-
-        raw_sum = sum(day_hours.values())
-        ratio = daily_target / raw_sum
-        scaled_hours = {ts: round(val * ratio, 4) for ts, val in day_hours.items()}
-        diff = round(daily_target - sum(scaled_hours.values()), 4)
-        peak_ts = max(day_hours.keys(), key=lambda ts: day_hours[ts])
-        scaled_hours[peak_ts] = round(scaled_hours[peak_ts] + diff, 4)
-
-        calibrated_sum = round(sum(scaled_hours.values()), 4)
-        self.assertEqual(calibrated_sum, daily_target)
+    def test_daily_statistics_parsing_and_sum(self):
+        # Daily records parsed directly from CLP Daily API
+        daily_results = [
+            {"startDate": "20261115000000", "expireDate": "20261115235959", "kwhTotal": 6.3},
+            {"startDate": "20261116000000", "expireDate": "20261116235959", "kwhTotal": 6.0},
+            {"startDate": "20261117000000", "expireDate": "20261117235959", "kwhTotal": 5.3},
+        ]
+        daily_by_utc = {}
+        for r in daily_results:
+            dt = datetime.datetime.strptime(r["startDate"][:8], "%Y%m%d")
+            daily_by_utc[dt] = float(r["kwhTotal"])
+            
+        self.assertEqual(len(daily_by_utc), 3)
+        self.assertEqual(daily_by_utc[datetime.datetime(2026, 11, 17)], 5.3)
+        
+        base_sum = 100.0
+        running_sum = base_sum
+        for ts in sorted(daily_by_utc.keys()):
+            running_sum = round(running_sum + daily_by_utc[ts], 4)
+        self.assertEqual(running_sum, 117.6)
 
     def test_timestamp_hour_shift(self):
         # CLP reports 01:00 for 00:00-01:00
