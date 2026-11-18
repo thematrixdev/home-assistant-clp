@@ -275,18 +275,16 @@ class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
                     for k, v in user_input.items()
                     if k not in (CONF_COMBINED_TOKENS, CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN)
                 }
-                new_data = dict(self.config_entry.data)
                 if new_access_token and new_refresh_token:
+                    new_data = dict(self.config_entry.data)
                     new_data[CONF_ACCESS_TOKEN] = new_access_token
                     new_data[CONF_REFRESH_TOKEN] = new_refresh_token
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry,
+                        data=new_data,
+                    )
 
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry,
-                    data=new_data,
-                    options=clean_options,
-                )
-                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-                return self.async_create_entry(title=self.config_entry.title, data=clean_options)
+                return self.async_create_entry(title="", data=clean_options)
 
         return self.async_show_form(
             step_id="init",
