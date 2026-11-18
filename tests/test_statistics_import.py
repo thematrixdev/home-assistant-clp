@@ -1,5 +1,14 @@
 import unittest
 import datetime
+import os
+import sys
+
+sys.path.insert(
+    0,
+    os.path.join(os.path.dirname(__file__), "..", "custom_components", "clphk"),
+)
+
+from const import calculate_residential_bill
 
 class TestStatisticsImport(unittest.TestCase):
     def test_dedup_and_sort(self):
@@ -66,6 +75,21 @@ class TestStatisticsImport(unittest.TestCase):
         hour_start_end = clp_dt_end - datetime.timedelta(hours=1)
         self.assertEqual(hour_start_end.hour, 23)
         self.assertEqual(hour_start_end.day, 17)
+
+    def test_calculate_residential_bill(self):
+        # Test Case 1: 296.8 kWh over 61 days (Tier 1 <= 400 kWh, rebate applied)
+        res1 = calculate_residential_bill(296.8, 61, 42.9028)
+        self.assertEqual(res1["total"], 359.73)
+        self.assertEqual(res1["effective_rate"], 1.212)
+        
+        # Test Case 2: 616.0 kWh over 61 days (Crosses into Tier 2, no rebate)
+        res2 = calculate_residential_bill(616.0, 61, 37.0)
+        self.assertEqual(round(res2["total"]), 839)
+        self.assertEqual(res2["effective_rate"], 1.362)
+
+        # Test Case 3: Minimum charge 40 HKD
+        res3 = calculate_residential_bill(5.0, 60, 39.4)
+        self.assertEqual(res3["total"], 40.0)
 
 if __name__ == "__main__":
     unittest.main()

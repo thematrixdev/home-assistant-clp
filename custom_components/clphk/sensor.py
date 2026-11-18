@@ -37,12 +37,14 @@ from homeassistant.const import (
     UnitOfEnergy,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
 
 from .const import (
     CONF_DOMAIN,
+    calculate_residential_bill,
     is_auth_failure,
     is_transient,
     parse_datetime,
@@ -126,25 +128,44 @@ async def async_setup_platform(
             hass.data[DOMAIN][k] = discovery_info.get(k)
     hass.data[DOMAIN]["token_lock"] = asyncio.Lock()
 
-    async_add_entities(
-        [
-            CLPSensor(
-                hass=hass,
-                sensor_type='main',
-                name=discovery_info.get(CONF_NAME, "CLP"),
-                timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
-                type=discovery_info.get(CONF_TYPE, ""),
-                get_acct=discovery_info.get(CONF_GET_ACCT, False),
-                get_bill=discovery_info.get(CONF_GET_BILL, False),
-                get_estimation=discovery_info.get(CONF_GET_ESTIMATION, False),
-                get_bimonthly=discovery_info.get(CONF_GET_BIMONTHLY, False),
-                get_daily=discovery_info.get(CONF_GET_DAILY, False),
-                get_hourly=discovery_info.get(CONF_GET_HOURLY, False),
-                get_hourly_days=int(discovery_info.get(CONF_GET_HOURLY_DAYS, 1)),
-            ),
-        ],
-        update_before_add=True,
+    main_sensor = CLPSensor(
+        hass=hass,
+        sensor_type='main',
+        name=discovery_info.get(CONF_NAME, "CLP"),
+        timeout=int(discovery_info.get(CONF_TIMEOUT, 30)),
+        type=discovery_info.get(CONF_TYPE, ""),
+        get_acct=discovery_info.get(CONF_GET_ACCT, False),
+        get_bill=discovery_info.get(CONF_GET_BILL, False),
+        get_estimation=discovery_info.get(CONF_GET_ESTIMATION, False),
+        get_bimonthly=discovery_info.get(CONF_GET_BIMONTHLY, False),
+        get_daily=discovery_info.get(CONF_GET_DAILY, False),
+        get_hourly=discovery_info.get(CONF_GET_HOURLY, False),
+        get_hourly_days=int(discovery_info.get(CONF_GET_HOURLY_DAYS, 1)),
     )
+    entities: list[SensorEntity] = [main_sensor]
+
+    # Add child sensors for main sensor
+    sub_sensor_configs = [
+        ("projected_cost", "Projected Cost", SensorDeviceClass.MONETARY, "HKD", None),
+        ("current_consumption", "Current Period Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, SensorStateClass.TOTAL),
+        ("projected_consumption", "Projected Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, None),
+        ("last_bill", "Last Bill Amount", SensorDeviceClass.MONETARY, "HKD", None),
+        ("outstanding", "Outstanding Amount", SensorDeviceClass.MONETARY, "HKD", None),
+        ("tariff_rate", "Effective Tariff Rate", None, "HKD/kWh", None),
+    ]
+    for sub_key, sub_name, dev_class, unit, state_class in sub_sensor_configs:
+        entities.append(
+            CLPSubSensor(
+                parent=main_sensor,
+                sub_key=sub_key,
+                name=f"{main_sensor.name} {sub_name}",
+                device_class=dev_class,
+                unit_of_measurement=unit,
+                state_class=state_class,
+            )
+        )
+
+    async_add_entities(entities, update_before_add=True)
 
     if discovery_info.get(CONF_RES_ENABLE, False):
         async_add_entities(
@@ -268,6 +289,44 @@ class CLPSensor(SensorEntity):
         self._daily_task_last_fetch_time = None
         self._no_account_warned = False
         self._multi_account_warned = False
+        self._sub_sensors: list[CLPSubSensor] = []
+
+    @property
+    def sensor_type(self) -> str:
+        return self._sensor_type
+
+    @property
+    def estimation(self) -> dict | None:
+        return self._estimation
+
+    @property
+    def bills(self) -> dict | None:
+        return self._bills
+
+    @property
+    def account(self) -> dict | None:
+        return self._account
+
+    @property
+    def bimonthly(self) -> list | None:
+        return self._bimonthly
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._attr_unique_id)},
+            name=self._name,
+            manufacturer="CLP Power Hong Kong",
+            model="Electricity Account",
+        )
+
+    def register_sub_sensor(self, sensor: CLPSubSensor) -> None:
+        if sensor not in self._sub_sensors:
+            self._sub_sensors.append(sensor)
+
+    def unregister_sub_sensor(self, sensor: CLPSubSensor) -> None:
+        if sensor in self._sub_sensors:
+            self._sub_sensors.remove(sensor)
 
     @property
     def unique_id(self):
@@ -777,6 +836,59 @@ class CLPSensor(SensorEntity):
         )
         async_add_external_statistics(self.hass, metadata, statistics)
 
+        # Also import daily cost statistics
+        effective_rate = 1.25
+        if self._estimation:
+            est_cost = self._estimation.get("estimation_cost")
+            est_kwh = self._estimation.get("estimation_consumption")
+            if est_cost and est_kwh and est_kwh > 0:
+                effective_rate = round(est_cost / est_kwh, 4)
+
+        statistic_cost_id = f"{DOMAIN}:{self._sensor_type}_daily_cost"
+        base_cost_sum = 0.0
+        try:
+            last_cost_stats = await get_instance(self.hass).async_add_executor_job(
+                get_last_statistics, self.hass, 200, statistic_cost_id, True, {"sum"}
+            )
+            if last_cost_stats and statistic_cost_id in last_cost_stats:
+                for stat in last_cost_stats[statistic_cost_id]:
+                    s_time = stat.get("start")
+                    rec_ts = float(s_time) if isinstance(s_time, (int, float)) else (s_time.timestamp() if hasattr(s_time, "timestamp") else None)
+                    if rec_ts is not None and rec_ts < earliest_ts:
+                        base_cost_sum = stat.get("sum") or 0.0
+                        break
+        except Exception as ex:
+            _LOGGER.debug("Could not query base cost statistics for %s: %s", statistic_cost_id, ex)
+
+        cost_statistics: list[StatisticData] = []
+        running_cost_sum = base_cost_sum
+        for ts in all_utc_timestamps:
+            kwh = daily_by_utc[ts]
+            cost = round(kwh * effective_rate, 2)
+            running_cost_sum = round(running_cost_sum + cost, 2)
+            cost_statistics.append(
+                StatisticData(
+                    start=ts,
+                    state=cost,
+                    sum=running_cost_sum,
+                )
+            )
+
+        meta_cost_kwargs: dict = {
+            "has_mean": False,
+            "has_sum": True,
+            "name": f"{self._name} Daily Cost",
+            "source": DOMAIN,
+            "statistic_id": statistic_cost_id,
+            "unit_of_measurement": "HKD",
+        }
+        if StatisticMeanType is not None:
+            meta_cost_kwargs["mean_type"] = StatisticMeanType.NONE
+            meta_cost_kwargs["unit_class"] = None
+
+        metadata_cost = StatisticMetaData(**meta_cost_kwargs)
+        async_add_external_statistics(self.hass, metadata_cost, cost_statistics)
+
     @handle_errors
     async def main_get_account_detail(self):
         response = await self.api_request(
@@ -932,25 +1044,39 @@ class CLPSensor(SensorEntity):
 
     @handle_errors
     async def main_get_daily(self):
-        dates = get_dates(self._timezone)
+        now = datetime.datetime.now(self._timezone)
+        this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        response = await self.api_request(
-            method="POST",
-            url="https://api.clp.com.hk/ts1/ms/consumption/history",
-            headers={
-                "Authorization": self._access_token,
-            },
-            json={
-                "ca": self._account_number,
-                "fromDate": dates["this_month"].strftime("%Y%m%d000000"),
-                "mode": "Daily",
-                "toDate": dates["next_month"].strftime("%Y%m%d000000"),
-                "type": "Unit",
-            },
-        )
+        # CLP Daily API allows up to ~31 days per request.
+        # Fetch the past 5 months (month-by-month) to backfill historical daily statistics.
+        months_to_fetch = 5
+        all_results: list[dict] = []
+        for i in range(months_to_fetch - 1, -1, -1):
+            m_start = this_month - relativedelta.relativedelta(months=i)
+            m_end = this_month - relativedelta.relativedelta(months=i - 1)
+            try:
+                response = await self.api_request(
+                    method="POST",
+                    url="https://api.clp.com.hk/ts1/ms/consumption/history",
+                    headers={
+                        "Authorization": self._access_token,
+                    },
+                    json={
+                        "ca": self._account_number,
+                        "fromDate": m_start.strftime("%Y%m%d000000"),
+                        "mode": "Daily",
+                        "toDate": m_end.strftime("%Y%m%d000000"),
+                        "type": "Unit",
+                    },
+                )
+                if response and response.get('data'):
+                    res = response['data'].get('results') or []
+                    all_results.extend(res)
+            except Exception as ex:
+                _LOGGER.debug("Could not fetch daily records for %s: %s", m_start.strftime("%Y-%m"), ex)
 
-        if response['data']:
-            results = response['data'].get('results') or []
+        if all_results:
+            results = all_results
             if results and (self._type == '' or self._type.upper() == 'DAILY'):
                 self._state_data_type = 'DAILY'
                 self._attr_native_value = safe_float(results[-1].get('kwhTotal'))
@@ -1242,3 +1368,73 @@ class CLPSensor(SensorEntity):
 
         if self._type == '' and self._state_data_type is not None:
             self._type = self._state_data_type
+
+        for sub in getattr(self, "_sub_sensors", []):
+            if getattr(sub, "hass", None):
+                sub.async_write_ha_state()
+
+
+class CLPSubSensor(SensorEntity):
+    """Sub-sensor for specific CLP metric (e.g. projected cost, current period consumption)."""
+
+    def __init__(
+        self,
+        parent: CLPSensor,
+        sub_key: str,
+        name: str,
+        device_class: SensorDeviceClass | None,
+        unit_of_measurement: str | None,
+        state_class: SensorStateClass | None = None,
+    ) -> None:
+        self._parent = parent
+        self._sub_key = sub_key
+        self._attr_name = name
+        self._attr_unique_id = f"clphk_{parent.sensor_type}_{sub_key}"
+        self._attr_device_class = device_class
+        self._attr_native_unit_of_measurement = unit_of_measurement
+        self._attr_state_class = state_class
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return self._parent.device_info
+
+    @property
+    def native_value(self):
+        est = self._parent.estimation or {}
+        bills = self._parent.bills or {}
+        acct = self._parent.account or {}
+
+        if self._sub_key == "projected_cost":
+            return est.get("estimation_cost")
+        elif self._sub_key == "current_consumption":
+            return est.get("current_consumption")
+        elif self._sub_key == "projected_consumption":
+            return est.get("estimation_consumption")
+        elif self._sub_key == "last_bill":
+            bill_list = bills.get("bill") or []
+            return bill_list[0].get("total") if bill_list else None
+        elif self._sub_key == "outstanding":
+            return acct.get("outstanding")
+        elif self._sub_key == "tariff_rate":
+            p_cost = est.get("estimation_cost")
+            p_kwh = est.get("estimation_consumption")
+            if p_cost is not None and p_kwh and p_kwh > 0:
+                return round(p_cost / p_kwh, 4)
+            bill_list = bills.get("bill") or []
+            bimonthly = self._parent.bimonthly or []
+            if bill_list and bimonthly:
+                b_kwh = bimonthly[0].get("kwh")
+                b_total = bill_list[0].get("total")
+                if b_kwh and b_kwh > 0 and b_total is not None:
+                    return round(b_total / b_kwh, 4)
+            return None
+
+    @property
+    def available(self) -> bool:
+        return self._parent.available
+
+    async def async_added_to_hass(self) -> None:
+        self._parent.register_sub_sensor(self)
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._parent.unregister_sub_sensor(self)

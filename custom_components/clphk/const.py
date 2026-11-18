@@ -151,6 +151,62 @@ def parse_datetime(value, fmt):
     except (TypeError, ValueError):
         return None
 
+
+def calculate_residential_bill(kwh: float, days: int = 60, fuel_cents: float = 39.4) -> dict:
+    """Calculate CLP residential electricity bill amount based on official tariff table.
+
+    Tiers (scaled by days/60 when days not in 55..65):
+    - First 400 kWh: 94.5 cents/kWh
+    - Next 600 kWh: 107.9 cents/kWh
+    - Next 800 kWh: 123.7 cents/kWh
+    - Next 800 kWh: 154.5 cents/kWh
+    - Next 800 kWh: 177.4 cents/kWh
+    - Next 800 kWh: 187.8 cents/kWh
+    - Above 4200 kWh: 189.0 cents/kWh
+
+    Fuel Clause Adjustment: fuel_cents / kWh
+    Energy Saving Rebate (when bi-monthly total <= 400 kWh):
+    - 1..200 kWh: 17.2 cents/kWh
+    - 201..300 kWh: 16.2 cents/kWh
+    - 301..400 kWh: 15.2 cents/kWh
+    Minimum charge: HK$40
+    """
+    scale = (days / 60.0) if (days < 55 or days > 65) else 1.0
+    tier_limits = [400 * scale, 600 * scale, 800 * scale, 800 * scale, 800 * scale, 800 * scale]
+    tier_rates = [94.5, 107.9, 123.7, 154.5, 177.4, 187.8, 189.0]
+
+    remaining = max(0.0, float(kwh))
+    basic_tariff_cents = 0.0
+    for limit, rate in zip(tier_limits, tier_rates):
+        take = min(remaining, limit)
+        basic_tariff_cents += take * rate
+        remaining -= take
+        if remaining <= 0:
+            break
+    if remaining > 0:
+        basic_tariff_cents += remaining * tier_rates[-1]
+
+    fuel_cents_total = max(0.0, float(kwh)) * fuel_cents
+    rebate_cents = 0.0
+    rebate_limit = 400 * scale
+    if kwh <= rebate_limit:
+        if kwh <= 200 * scale:
+            rebate_cents = kwh * 17.2
+        elif kwh <= 300 * scale:
+            rebate_cents = kwh * 16.2
+        else:
+            rebate_cents = kwh * 15.2
+
+    net_cents = basic_tariff_cents + fuel_cents_total - rebate_cents
+    net_dollars = round(max(40.0, net_cents / 100.0), 2)
+    return {
+        "basic_tariff": round(basic_tariff_cents / 100.0, 2),
+        "fuel_charge": round(fuel_cents_total / 100.0, 2),
+        "rebate": round(rebate_cents / 100.0, 2),
+        "total": net_dollars,
+        "effective_rate": round(net_dollars / max(1.0, kwh), 4),
+    }
+
 CONF_GET_ACCT = 'get_account'
 CONF_GET_BILL = 'get_bill'
 CONF_GET_ESTIMATION = 'get_estimation'
