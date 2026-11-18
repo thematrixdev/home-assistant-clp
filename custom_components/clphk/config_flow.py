@@ -30,6 +30,10 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_COMBINED_TOKENS,
+    CONF_CUSTOM_FIXED_RATE,
+    CONF_CUSTOM_FUEL_CENTS,
+    CONF_CUSTOM_RATE_ENTITY,
+    CONF_CUSTOM_SUBSIDY,
     CONF_GET_ACCT,
     CONF_GET_BILL,
     CONF_GET_BIMONTHLY,
@@ -135,6 +139,22 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_RES_GET_HOURLY_DAYS,
                 default=defaults.get(CONF_RES_GET_HOURLY_DAYS, 1),
             ): NumberSelector(NumberSelectorConfig(min=1, max=2, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_FUEL_CENTS,
+                default=float(defaults.get(CONF_CUSTOM_FUEL_CENTS, 0.0) or 0.0),
+            ): NumberSelector(NumberSelectorConfig(min=0, max=200, step=0.1, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_FIXED_RATE,
+                default=float(defaults.get(CONF_CUSTOM_FIXED_RATE, 0.0) or 0.0),
+            ): NumberSelector(NumberSelectorConfig(min=0, max=10, step=0.001, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_SUBSIDY,
+                default=float(defaults.get(CONF_CUSTOM_SUBSIDY, 0.0) or 0.0),
+            ): NumberSelector(NumberSelectorConfig(min=0, max=2000, step=1, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_RATE_ENTITY,
+                default=defaults.get(CONF_CUSTOM_RATE_ENTITY, ""),
+            ): TextSelector(TextSelectorConfig()),
         }
     )
 

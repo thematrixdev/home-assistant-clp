@@ -59,6 +59,11 @@ from .const import (
     CONF_GET_HOURLY,
     CONF_GET_HOURLY_DAYS,
 
+    CONF_CUSTOM_FUEL_CENTS,
+    CONF_CUSTOM_FIXED_RATE,
+    CONF_CUSTOM_SUBSIDY,
+    CONF_CUSTOM_RATE_ENTITY,
+
     CONF_RES_ENABLE,
     CONF_RES_NAME,
     CONF_RES_TYPE,
@@ -81,6 +86,11 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_GET_DAILY, default=False): cv.boolean,
     vol.Optional(CONF_GET_HOURLY, default=False): cv.boolean,
     vol.Optional(CONF_GET_HOURLY_DAYS, default=1): vol.Clamp(min=1, max=2),
+
+    vol.Optional(CONF_CUSTOM_FUEL_CENTS, default=0.0): cv.positive_float,
+    vol.Optional(CONF_CUSTOM_FIXED_RATE, default=0.0): cv.positive_float,
+    vol.Optional(CONF_CUSTOM_SUBSIDY, default=0.0): cv.positive_float,
+    vol.Optional(CONF_CUSTOM_RATE_ENTITY, default=''): cv.string,
 
     vol.Optional(CONF_RES_ENABLE, default=False): cv.boolean,
     vol.Optional(CONF_RES_NAME, default='CLP Renewable Energy'): cv.string,
@@ -141,7 +151,12 @@ async def async_setup_platform(
         get_daily=discovery_info.get(CONF_GET_DAILY, False),
         get_hourly=discovery_info.get(CONF_GET_HOURLY, False),
         get_hourly_days=int(discovery_info.get(CONF_GET_HOURLY_DAYS, 1)),
+        custom_fuel_cents=discovery_info.get(CONF_CUSTOM_FUEL_CENTS),
+        custom_fixed_rate=discovery_info.get(CONF_CUSTOM_FIXED_RATE),
+        custom_subsidy=discovery_info.get(CONF_CUSTOM_SUBSIDY),
+        custom_rate_entity=discovery_info.get(CONF_CUSTOM_RATE_ENTITY),
     )
+    hass.data[DOMAIN].setdefault("sensors", []).append(main_sensor)
     entities: list[SensorEntity] = [main_sensor]
 
     # Add child sensors for main sensor
@@ -152,6 +167,7 @@ async def async_setup_platform(
         ("last_bill", "Last Bill Amount", SensorDeviceClass.MONETARY, "HKD", None),
         ("outstanding", "Outstanding Amount", SensorDeviceClass.MONETARY, "HKD", None),
         ("tariff_rate", "Effective Tariff Rate", None, "HKD/kWh", None),
+        ("fuel_adjustment", "Fuel Clause Adjustment", None, "HKD/kWh", None),
     ]
     for sub_key, sub_name, dev_class, unit, state_class in sub_sensor_configs:
         entities.append(
@@ -252,6 +268,10 @@ class CLPSensor(SensorEntity):
             get_daily: bool = False,
             get_hourly: bool = False,
             get_hourly_days: int = 1,
+            custom_fuel_cents: float | None = None,
+            custom_fixed_rate: float | None = None,
+            custom_subsidy: float | None = None,
+            custom_rate_entity: str | None = None,
     ) -> None:
         _LOGGER.debug(f"[SENSOR INIT] type={sensor_type}, name={name}")
         self.hass = hass
@@ -266,6 +286,12 @@ class CLPSensor(SensorEntity):
         self._get_daily = get_daily
         self._get_hourly = get_hourly
         self._get_hourly_days = get_hourly_days
+        self._custom_fuel_cents = safe_float(custom_fuel_cents)
+        self._custom_fixed_rate = safe_float(custom_fixed_rate)
+        self._custom_subsidy = safe_float(custom_subsidy)
+        self._custom_rate_entity = str(custom_rate_entity).strip() if custom_rate_entity else None
+        self._latest_tariff = {}
+        self._tariff_last_fetch_time = None
         self._account_number = None
         self._state_data_type = None
         self._error = None
@@ -310,6 +336,160 @@ class CLPSensor(SensorEntity):
     @property
     def bimonthly(self) -> list | None:
         return self._bimonthly
+
+    @property
+    def latest_tariff(self) -> dict:
+        return self._latest_tariff
+
+    @property
+    def custom_fuel_cents(self) -> float | None:
+        return self._custom_fuel_cents
+
+    @property
+    def custom_fixed_rate(self) -> float | None:
+        return self._custom_fixed_rate
+
+    @property
+    def custom_subsidy(self) -> float | None:
+        return self._custom_subsidy
+
+    @property
+    def custom_rate_entity(self) -> str | None:
+        return self._custom_rate_entity
+
+    async def async_fetch_monthly_tariff(self, force: bool = False) -> dict:
+        """Fetch latest residential tariff rates (fuel cost adjustment, rebates) from CLP official API."""
+        now = datetime.datetime.now(self._timezone)
+        current_ym = (now.year, now.month)
+        if not force and self._latest_tariff and self._latest_tariff.get("year_month") == current_ym:
+            return self._latest_tariff
+
+        start_date = f"{now.year}{now.month:02d}01000000"
+        try:
+            async with AsyncSession(impersonate="chrome131") as session:
+                headers = {
+                    "configPath": "/content/dam/clphk/config/calculator.properties",
+                    "Referer": "https://www.clp.com.hk/zh/residential/bills-payment-tariffs-residential/bill-calculator",
+                    "Accept": "application/json, text/plain, */*",
+                    "Content-Type": "application/json;charset=UTF-8",
+                }
+                body = {
+                    "StartDate": start_date,
+                    "TariffType": "DT",
+                    "OnPeakPeriod": "0000000100",
+                    "NoOfDays": "30",
+                }
+                resp = await session.post(
+                    "https://www.clp.com.hk/bin/calculator/tariff/residential",
+                    headers=headers,
+                    json=body,
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    fuel_rate = 39.4
+                    special_rebate = 0.0
+                    energy_charge = 0.945
+                    rebate = 0.172
+                    for item in data.get("results", []):
+                        ct = item.get("ChargeType")
+                        r = float(item.get("Rate", 0))
+                        if ct == "Fuel cost adjustment":
+                            fuel_rate = round(r * 100, 2)
+                        elif ct == "Special fuel rebate":
+                            special_rebate = round(abs(r) * 100, 2)
+                        elif ct == "Energy charge":
+                            energy_charge = r
+                        elif ct == "Energy saving rebate":
+                            rebate = abs(r)
+
+                    self._latest_tariff = {
+                        "year_month": current_ym,
+                        "fuel_cents": fuel_rate,
+                        "special_fuel_rebate_cents": special_rebate,
+                        "energy_charge": energy_charge,
+                        "rebate": rebate,
+                        "last_synced": now.isoformat(),
+                    }
+                    self._tariff_last_fetch_time = now
+                    _LOGGER.debug(
+                        "[TARIFF] Successfully fetched CLP tariff for %04d-%02d: fuel=%.2f¢, special_rebate=%.2f¢",
+                        now.year, now.month, fuel_rate, special_rebate,
+                    )
+                    return self._latest_tariff
+        except Exception as ex:
+            _LOGGER.debug("[TARIFF] Could not fetch latest CLP tariff from official calculator API: %s", ex)
+
+        if not self._latest_tariff:
+            self._latest_tariff = {
+                "year_month": current_ym,
+                "fuel_cents": 47.4 if (now.year == 2026 and now.month >= 11) else 39.4,
+                "special_fuel_rebate_cents": 0.0,
+                "last_synced": None,
+            }
+            self._tariff_last_fetch_time = now
+        return self._latest_tariff
+
+    def get_effective_tariff_rate(self) -> float:
+        """Return effective tariff rate (HKD/kWh) considering user custom overrides and official data."""
+        # 1. Custom fixed rate
+        if self._custom_fixed_rate is not None and self._custom_fixed_rate > 0:
+            return round(self._custom_fixed_rate, 4)
+
+        # 2. Custom rate entity
+        if self._custom_rate_entity:
+            state_obj = self.hass.states.get(self._custom_rate_entity)
+            if state_obj and state_obj.state not in (None, "unknown", "unavailable"):
+                try:
+                    val = float(state_obj.state)
+                    if val > 0:
+                        return round(val, 4)
+                except (ValueError, TypeError):
+                    pass
+
+        tariff = self._latest_tariff or {}
+        fuel_cents = self._custom_fuel_cents if (self._custom_fuel_cents and self._custom_fuel_cents > 0) else tariff.get("fuel_cents", 47.4)
+        special_rebate = tariff.get("special_fuel_rebate_cents", 0.0)
+        subsidy = self._custom_subsidy or 0.0
+
+        # 3. If custom fuel cents or subsidy is set, calculate dynamically with official formula
+        est = self._estimation or {}
+        if (self._custom_fuel_cents and self._custom_fuel_cents > 0) or subsidy > 0:
+            curr_kwh = est.get("current_consumption") or est.get("estimation_consumption") or 300.0
+            calc = calculate_residential_bill(
+                kwh=curr_kwh,
+                days=60,
+                fuel_cents=fuel_cents,
+                special_fuel_rebate_cents=special_rebate,
+                subsidy=subsidy,
+            )
+            return calc.get("effective_rate")
+
+        # 4. CLP official server estimation
+        p_cost = est.get("estimation_cost")
+        p_kwh = est.get("estimation_consumption")
+        if p_cost is not None and p_kwh and p_kwh > 0:
+            return round(p_cost / p_kwh, 4)
+
+        # 5. Previous bill
+        bill_list = (self._bills or {}).get("bill") if isinstance(self._bills, dict) else (self._bills or [])
+        bimonthly = self._bimonthly or []
+        if bill_list and bimonthly:
+            b_kwh = bimonthly[0].get("kwh")
+            b_total = bill_list[0].get("total")
+            if b_kwh and b_kwh > 0 and b_total is not None:
+                return round(b_total / b_kwh, 4)
+
+        # 6. Fallback formula
+        curr_kwh = est.get("current_consumption") or 300.0
+        calc = calculate_residential_bill(
+            kwh=curr_kwh,
+            days=60,
+            fuel_cents=fuel_cents,
+            special_fuel_rebate_cents=special_rebate,
+            subsidy=subsidy,
+        )
+        return calc.get("effective_rate")
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -837,12 +1017,7 @@ class CLPSensor(SensorEntity):
         async_add_external_statistics(self.hass, metadata, statistics)
 
         # Also import daily cost statistics
-        effective_rate = 1.25
-        if self._estimation:
-            est_cost = self._estimation.get("estimation_cost")
-            est_kwh = self._estimation.get("estimation_consumption")
-            if est_cost and est_kwh and est_kwh > 0:
-                effective_rate = round(est_cost / est_kwh, 4)
+        effective_rate = self.get_effective_tariff_rate()
 
         statistic_cost_id = f"{DOMAIN}:{self._sensor_type}_daily_cost"
         base_cost_sum = 0.0
@@ -1311,6 +1486,10 @@ class CLPSensor(SensorEntity):
             return
 
         if self._sensor_type == 'main':
+            now = datetime.datetime.now(self._timezone)
+            if not self._tariff_last_fetch_time or (now.year, now.month) != self._latest_tariff.get("year_month"):
+                await self.async_fetch_monthly_tariff()
+
             if not self._single_task_last_fetch_time:
                 if not self._account_number or self._get_acct:
                     _LOGGER.debug(f"[SENSOR UPDATE] Fetching account detail.")
@@ -1415,19 +1594,49 @@ class CLPSubSensor(SensorEntity):
             return bill_list[0].get("total") if bill_list else None
         elif self._sub_key == "outstanding":
             return acct.get("outstanding")
+        elif self._sub_key == "fuel_adjustment":
+            if self._parent.custom_fuel_cents is not None and self._parent.custom_fuel_cents > 0:
+                return round(self._parent.custom_fuel_cents / 100.0, 4)
+            tariff = self._parent.latest_tariff or {}
+            fuel_cents = tariff.get("fuel_cents", 47.4)
+            return round(fuel_cents / 100.0, 4)
         elif self._sub_key == "tariff_rate":
-            p_cost = est.get("estimation_cost")
-            p_kwh = est.get("estimation_consumption")
-            if p_cost is not None and p_kwh and p_kwh > 0:
-                return round(p_cost / p_kwh, 4)
-            bill_list = bills.get("bill") or []
-            bimonthly = self._parent.bimonthly or []
-            if bill_list and bimonthly:
-                b_kwh = bimonthly[0].get("kwh")
-                b_total = bill_list[0].get("total")
-                if b_kwh and b_kwh > 0 and b_total is not None:
-                    return round(b_total / b_kwh, 4)
-            return None
+            return self._parent.get_effective_tariff_rate()
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if self._sub_key == "tariff_rate":
+            tariff = self._parent.latest_tariff or {}
+            mode = "auto"
+            if self._parent.custom_fixed_rate and self._parent.custom_fixed_rate > 0:
+                mode = "custom_fixed"
+            elif self._parent.custom_rate_entity:
+                mode = f"entity:{self._parent.custom_rate_entity}"
+            elif self._parent.custom_fuel_cents and self._parent.custom_fuel_cents > 0:
+                mode = "custom_fuel"
+
+            fuel_cents = self._parent.custom_fuel_cents if (self._parent.custom_fuel_cents and self._parent.custom_fuel_cents > 0) else tariff.get("fuel_cents", 47.4)
+            ym = tariff.get("year_month")
+            return {
+                "tariff_mode": mode,
+                "fuel_clause_adjustment_cents": fuel_cents,
+                "fuel_clause_adjustment_hkd": round(fuel_cents / 100.0, 4),
+                "special_fuel_rebate_cents": tariff.get("special_fuel_rebate_cents", 0.0),
+                "subsidy_hkd": self._parent.custom_subsidy or 0.0,
+                "tariff_period": f"{ym[0]}-{ym[1]:02d}" if ym else None,
+                "last_tariff_synced": tariff.get("last_synced"),
+            }
+        elif self._sub_key == "fuel_adjustment":
+            tariff = self._parent.latest_tariff or {}
+            ym = tariff.get("year_month")
+            return {
+                "is_custom_override": bool(self._parent.custom_fuel_cents and self._parent.custom_fuel_cents > 0),
+                "special_fuel_rebate_cents": tariff.get("special_fuel_rebate_cents", 0.0),
+                "tariff_period": f"{ym[0]}-{ym[1]:02d}" if ym else None,
+                "last_tariff_synced": tariff.get("last_synced"),
+            }
+        return {}
 
     @property
     def available(self) -> bool:

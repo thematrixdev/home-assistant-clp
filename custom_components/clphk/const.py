@@ -152,7 +152,14 @@ def parse_datetime(value, fmt):
         return None
 
 
-def calculate_residential_bill(kwh: float, days: int = 60, fuel_cents: float = 39.4) -> dict:
+def calculate_residential_bill(
+    kwh: float,
+    days: int = 60,
+    fuel_cents: float = 39.4,
+    special_fuel_rebate_cents: float = 0.0,
+    subsidy: float = 0.0,
+    custom_fixed_rate: float | None = None,
+) -> dict:
     """Calculate CLP residential electricity bill amount based on official tariff table.
 
     Tiers (scaled by days/60 when days not in 55..65):
@@ -165,12 +172,27 @@ def calculate_residential_bill(kwh: float, days: int = 60, fuel_cents: float = 3
     - Above 4200 kWh: 189.0 cents/kWh
 
     Fuel Clause Adjustment: fuel_cents / kWh
+    Special Fuel Rebate: special_fuel_rebate_cents / kWh
     Energy Saving Rebate (when bi-monthly total <= 400 kWh):
     - 1..200 kWh: 17.2 cents/kWh
     - 201..300 kWh: 16.2 cents/kWh
     - 301..400 kWh: 15.2 cents/kWh
     Minimum charge: HK$40
+    Subsidy: deducted from total bill in HKD
+    Custom Fixed Rate: if specified (>0), uses fixed rate (HKD/kWh)
     """
+    if custom_fixed_rate is not None and custom_fixed_rate > 0:
+        net_dollars = round(max(0.0, kwh * custom_fixed_rate - subsidy), 2)
+        return {
+            "basic_tariff": 0.0,
+            "fuel_charge": 0.0,
+            "rebate": 0.0,
+            "special_rebate": 0.0,
+            "subsidy": round(subsidy, 2),
+            "total": net_dollars,
+            "effective_rate": round(custom_fixed_rate, 4),
+        }
+
     scale = (days / 60.0) if (days < 55 or days > 65) else 1.0
     tier_limits = [400 * scale, 600 * scale, 800 * scale, 800 * scale, 800 * scale, 800 * scale]
     tier_rates = [94.5, 107.9, 123.7, 154.5, 177.4, 187.8, 189.0]
@@ -187,6 +209,8 @@ def calculate_residential_bill(kwh: float, days: int = 60, fuel_cents: float = 3
         basic_tariff_cents += remaining * tier_rates[-1]
 
     fuel_cents_total = max(0.0, float(kwh)) * fuel_cents
+    special_rebate_cents_total = max(0.0, float(kwh)) * special_fuel_rebate_cents
+
     rebate_cents = 0.0
     rebate_limit = 400 * scale
     if kwh <= rebate_limit:
@@ -197,12 +221,15 @@ def calculate_residential_bill(kwh: float, days: int = 60, fuel_cents: float = 3
         else:
             rebate_cents = kwh * 15.2
 
-    net_cents = basic_tariff_cents + fuel_cents_total - rebate_cents
-    net_dollars = round(max(40.0, net_cents / 100.0), 2)
+    net_cents = basic_tariff_cents + fuel_cents_total - rebate_cents - special_rebate_cents_total
+    gross_dollars = net_cents / 100.0
+    net_dollars = round(max(40.0, gross_dollars - subsidy), 2)
     return {
         "basic_tariff": round(basic_tariff_cents / 100.0, 2),
         "fuel_charge": round(fuel_cents_total / 100.0, 2),
         "rebate": round(rebate_cents / 100.0, 2),
+        "special_rebate": round(special_rebate_cents_total / 100.0, 2),
+        "subsidy": round(subsidy, 2),
         "total": net_dollars,
         "effective_rate": round(net_dollars / max(1.0, kwh), 4),
     }
@@ -224,4 +251,9 @@ CONF_RES_GET_HOURLY = 'renewable_energy_sensor_get_hourly'
 CONF_RES_GET_HOURLY_DAYS = 'renewable_energy_sensor_get_hourly_days'
 
 CONF_COMBINED_TOKENS = 'combined_tokens'
+
+CONF_CUSTOM_FUEL_CENTS = 'custom_fuel_cents'
+CONF_CUSTOM_FIXED_RATE = 'custom_fixed_rate'
+CONF_CUSTOM_SUBSIDY = 'custom_subsidy'
+CONF_CUSTOM_RATE_ENTITY = 'custom_rate_entity'
 

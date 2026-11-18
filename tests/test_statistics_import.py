@@ -91,5 +91,22 @@ class TestStatisticsImport(unittest.TestCase):
         res3 = calculate_residential_bill(5.0, 60, 39.4)
         self.assertEqual(res3["total"], 40.0)
 
+        # Test Case 4: Special fuel rebate (8 cents/kWh deduction)
+        res4 = calculate_residential_bill(300.0, 60, 46.2, special_fuel_rebate_cents=8.0)
+        # basic: 300 * 0.945 = 283.50, fuel: 300 * 0.462 = 138.60, rebate: 300 * 0.162 = 48.60, special: 300 * 0.08 = 24.00
+        # net: 283.50 + 138.60 - 48.60 - 24.00 = 349.50
+        self.assertEqual(res4["total"], 349.50)
+        self.assertEqual(res4["special_rebate"], 24.00)
+
+        # Test Case 5: Government subsidy (e.g. 50 HKD deduction)
+        res5 = calculate_residential_bill(300.0, 60, 46.2, subsidy=50.0)
+        self.assertEqual(res5["total"], 323.50)
+        self.assertEqual(res5["subsidy"], 50.00)
+
+        # Test Case 6: Custom fixed rate (e.g. 1.25 HKD/kWh flat)
+        res6 = calculate_residential_bill(200.0, 60, custom_fixed_rate=1.25)
+        self.assertEqual(res6["total"], 250.00)
+        self.assertEqual(res6["effective_rate"], 1.25)
+
 if __name__ == "__main__":
     unittest.main()

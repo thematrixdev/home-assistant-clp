@@ -9,6 +9,18 @@ from .const import (
 
 async def async_setup(hass: HomeAssistant, config: dict):
     hass.data[CONF_DOMAIN] = {}
+
+    async def handle_refresh_tariff(call):
+        sensors = hass.data.get(CONF_DOMAIN, {}).get("sensors", [])
+        for sensor in sensors:
+            if hasattr(sensor, "async_fetch_monthly_tariff"):
+                await sensor.async_fetch_monthly_tariff(force=True)
+                sensor.async_write_ha_state()
+                for sub in getattr(sensor, "_sub_sensors", []):
+                    if getattr(sub, "hass", None):
+                        sub.async_write_ha_state()
+
+    hass.services.async_register(CONF_DOMAIN, "refresh_tariff", handle_refresh_tariff)
     return True
 
 
