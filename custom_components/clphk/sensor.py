@@ -13,6 +13,7 @@ from homeassistant.components.recorder.statistics import (
 
 
 import asyncio
+import collections
 import datetime
 import json as jsonlib
 import logging
@@ -259,6 +260,7 @@ class CLPSensor(SensorEntity):
         self._estimation = None
         self._bimonthly = None
         self._daily = None
+        self._daily_totals = {}
         self._hourly = None
 
         self._single_task_last_fetch_time = None
@@ -594,65 +596,109 @@ class CLPSensor(SensorEntity):
 
     async def _import_hourly_statistics(self, hourly_records: list[dict]):
         """Import hourly energy data directly into Home Assistant Recorder Statistics.
-        Accurately aligns 3-hour delayed CLP data with its true historical time slots.
+        Accurately aligns 3-hour delayed CLP data with its true historical time slots
+        and calibrates completed days to match CLP official daily billing totals.
         """
         if not hourly_records:
             return
 
         statistic_id = f"{DOMAIN}:{self._sensor_type}_hourly_energy"
-        last_sum = 0.0
-        last_stat_time = None
-        try:
-            last_stats = await get_instance(self.hass).async_add_executor_job(
-                get_last_statistics, self.hass, 1, statistic_id, True, {"sum"}
-            )
-            if last_stats and statistic_id in last_stats and last_stats[statistic_id]:
-                latest = last_stats[statistic_id][0]
-                last_sum = latest.get("sum") or 0.0
-                last_stat_time = latest.get("start")
-        except Exception as ex:
-            _LOGGER.debug("Could not query last statistics for %s: %s", statistic_id, ex)
 
-        last_stat_ts = None
-        if last_stat_time is not None:
-            if isinstance(last_stat_time, (int, float)):
-                last_stat_ts = float(last_stat_time)
-            elif hasattr(last_stat_time, "timestamp"):
-                last_stat_ts = last_stat_time.timestamp()
-
-        # Deduplicate records by start time, keeping the latest value
-        deduped: dict[datetime.datetime, float] = {}
-        for record in sorted(
-            [r for r in hourly_records if r.get("start") and r.get("kwh") is not None],
-            key=lambda x: x["start"],
-        ):
-            start_dt = record["start"]
-            if hasattr(start_dt, "tzinfo") and start_dt.tzinfo is not None:
-                start_utc = start_dt.astimezone(datetime.timezone.utc)
-            else:
-                start_utc = self._timezone.localize(start_dt).astimezone(datetime.timezone.utc)
-            start_utc = start_utc.replace(minute=0, second=0, microsecond=0)
-            deduped[start_utc] = record["kwh"] or 0.0
-
-        statistics: list[StatisticData] = []
-        running_sum = last_sum
-
-        for start_utc in sorted(deduped.keys()):
-            if last_stat_ts is not None and start_utc.timestamp() <= last_stat_ts:
+        # 1. Group records by local date and deduplicate per hour
+        records_by_day: dict[str, dict[datetime.datetime, float]] = collections.defaultdict(dict)
+        for record in hourly_records:
+            dt = record.get("start")
+            kwh = record.get("kwh")
+            if not dt or kwh is None:
                 continue
 
-            kwh = deduped[start_utc]
+            if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+                dt_utc = dt.astimezone(datetime.timezone.utc)
+                dt_local = dt.astimezone(self._timezone)
+            else:
+                dt_local = self._timezone.localize(dt)
+                dt_utc = dt_local.astimezone(datetime.timezone.utc)
+
+            dt_utc = dt_utc.replace(minute=0, second=0, microsecond=0)
+            day_key = dt_local.strftime("%Y%m%d")
+            records_by_day[day_key][dt_utc] = kwh
+
+        if not records_by_day:
+            return
+
+        # 2. For completed days with 24 hours, calibrate against official daily total
+        calibrated_by_utc: dict[datetime.datetime, float] = {}
+        for day_key in sorted(records_by_day.keys()):
+            day_hours = records_by_day[day_key]
+            daily_target = self._daily_totals.get(day_key) if hasattr(self, "_daily_totals") else None
+
+            if daily_target is not None and len(day_hours) == 24:
+                raw_sum = sum(day_hours.values())
+                if raw_sum > 0:
+                    ratio = daily_target / raw_sum
+                    scaled_hours = {ts: round(val * ratio, 4) for ts, val in day_hours.items()}
+                    diff = round(daily_target - sum(scaled_hours.values()), 4)
+                    peak_ts = max(day_hours.keys(), key=lambda ts: day_hours[ts])
+                    scaled_hours[peak_ts] = round(scaled_hours[peak_ts] + diff, 4)
+                    calibrated_by_utc.update(scaled_hours)
+                    _LOGGER.debug(
+                        "[CALIBRATION] Day %s calibrated: raw sum=%.2f -> official daily=%.4f (diff=%.4f)",
+                        day_key, raw_sum, daily_target, diff,
+                    )
+                else:
+                    if daily_target > 0:
+                        even_val = round(daily_target / 24, 4)
+                        scaled_hours = {ts: even_val for ts in day_hours}
+                        diff = round(daily_target - sum(scaled_hours.values()), 4)
+                        first_ts = min(day_hours.keys())
+                        scaled_hours[first_ts] = round(scaled_hours[first_ts] + diff, 4)
+                        calibrated_by_utc.update(scaled_hours)
+                    else:
+                        calibrated_by_utc.update({ts: 0.0 for ts in day_hours})
+            else:
+                # Incomplete day (e.g. today) or missing daily total: keep raw hourly
+                calibrated_by_utc.update(day_hours)
+
+        all_utc_timestamps = sorted(calibrated_by_utc.keys())
+        if not all_utc_timestamps:
+            return
+
+        earliest_ts = all_utc_timestamps[0].timestamp()
+
+        # 3. Query base sum before earliest_ts from recorder
+        base_sum = 0.0
+        try:
+            last_stats = await get_instance(self.hass).async_add_executor_job(
+                get_last_statistics, self.hass, 200, statistic_id, True, {"sum"}
+            )
+            if last_stats and statistic_id in last_stats:
+                for stat in last_stats[statistic_id]:
+                    s_time = stat.get("start")
+                    if isinstance(s_time, (int, float)):
+                        rec_ts = float(s_time)
+                    elif hasattr(s_time, "timestamp"):
+                        rec_ts = s_time.timestamp()
+                    else:
+                        continue
+                    if rec_ts < earliest_ts:
+                        base_sum = stat.get("sum") or 0.0
+                        break
+        except Exception as ex:
+            _LOGGER.debug("Could not query base statistics for %s: %s", statistic_id, ex)
+
+        # 4. Build statistics list with cumulative running sum
+        statistics: list[StatisticData] = []
+        running_sum = base_sum
+        for ts in all_utc_timestamps:
+            kwh = calibrated_by_utc[ts]
             running_sum = round(running_sum + kwh, 4)
             statistics.append(
                 StatisticData(
-                    start=start_utc,
+                    start=ts,
                     state=kwh,
                     sum=running_sum,
                 )
             )
-
-        if not statistics:
-            return
 
         meta_kwargs: dict = {
             "has_mean": False,
@@ -669,11 +715,12 @@ class CLPSensor(SensorEntity):
         metadata = StatisticMetaData(**meta_kwargs)
 
         _LOGGER.debug(
-            "[STATISTICS] Importing %d historical records for %s (from %s to %s)",
+            "[STATISTICS] Importing %d historical records for %s (from %s to %s, base_sum=%.4f)",
             len(statistics),
             statistic_id,
             statistics[0]["start"],
             statistics[-1]["start"],
+            base_sum,
         )
         async_add_external_statistics(self.hass, metadata, statistics)
 
@@ -857,6 +904,13 @@ class CLPSensor(SensorEntity):
                 self._attr_last_reset = parse_datetime(
                     results[-1].get('expireDate'), '%Y%m%d%H%M%S')
 
+            for row in results:
+                start_str = str(row.get('startDate') or '')
+                expire_str = str(row.get('expireDate') or '')
+                kwh = safe_float(row.get('kwhTotal'))
+                if len(start_str) >= 8 and expire_str.endswith('235959') and kwh is not None:
+                    self._daily_totals[start_str[:8]] = kwh
+
             if self._get_daily:
                 daily = []
                 for row in results:
@@ -872,8 +926,11 @@ class CLPSensor(SensorEntity):
 
     @handle_errors
     async def main_get_hourly(self):
+        if not getattr(self, "_daily_totals", None):
+            await self.main_get_daily()
+
         hourly = []
-        fetch_days = max(2, int(self._get_hourly_days or 1))
+        fetch_days = max(3, int(self._get_hourly_days or 1))
         for i in range(1, fetch_days + 1):
             from_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(fetch_days - i))
             to_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(fetch_days - i - 1))
@@ -907,10 +964,15 @@ class CLPSensor(SensorEntity):
 
                 if self._get_hourly:
                     for row in results:
-                        hourly.append({
-                            'start': parse_datetime(row.get('startDate'), '%Y%m%d%H%M%S'),
-                            'kwh': safe_float(row.get('kwhTotal')),
-                        })
+                        clp_dt = parse_datetime(row.get('startDate'), '%Y%m%d%H%M%S')
+                        if clp_dt:
+                            # CLP Hourly reports hour-end timestamps (01:00 to 24:00/00:00).
+                            # Home Assistant requires interval start timestamps (00:00 to 23:00).
+                            hour_start = clp_dt - datetime.timedelta(hours=1)
+                            hourly.append({
+                                'start': hour_start,
+                                'kwh': safe_float(row.get('kwhTotal')),
+                            })
 
                 self._hourly_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
