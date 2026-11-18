@@ -166,8 +166,9 @@ async def async_setup_platform(
         ("projected_consumption", "Projected Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, None),
         ("last_bill", "Last Bill Amount", SensorDeviceClass.MONETARY, "HKD", None),
         ("outstanding", "Outstanding Amount", SensorDeviceClass.MONETARY, "HKD", None),
-        ("tariff_rate", "Effective Tariff Rate", None, "HKD/kWh", None),
+        ("base_tariff", "Base Tariff Rate", None, "HKD/kWh", None),
         ("fuel_adjustment", "Fuel Clause Adjustment", None, "HKD/kWh", None),
+        ("tariff_rate", "Effective Tariff Rate", None, "HKD/kWh", None),
     ]
     for sub_key, sub_name, dev_class, unit, state_class in sub_sensor_configs:
         entities.append(
@@ -425,6 +426,8 @@ class CLPSensor(SensorEntity):
                 "year_month": current_ym,
                 "fuel_cents": 47.4 if (now.year == 2026 and now.month >= 11) else 39.4,
                 "special_fuel_rebate_cents": 0.0,
+                "energy_charge": 0.945,
+                "rebate": 0.172,
                 "last_synced": None,
             }
             self._tariff_last_fetch_time = now
@@ -1642,6 +1645,10 @@ class CLPSubSensor(SensorEntity):
             return bill_list[0].get("total") if bill_list else None
         elif self._sub_key == "outstanding":
             return acct.get("outstanding")
+        elif self._sub_key == "base_tariff":
+            tariff = self._parent.latest_tariff or {}
+            base_rate = tariff.get("energy_charge", 0.945)
+            return round(float(base_rate), 4)
         elif self._sub_key == "fuel_adjustment":
             if self._parent.custom_fuel_cents is not None and self._parent.custom_fuel_cents > 0:
                 return round(self._parent.custom_fuel_cents / 100.0, 4)
@@ -1668,10 +1675,49 @@ class CLPSubSensor(SensorEntity):
             ym = tariff.get("year_month")
             return {
                 "tariff_mode": mode,
+                "base_tariff_rate_hkd": round(float(tariff.get("energy_charge", 0.945)), 4),
                 "fuel_clause_adjustment_cents": fuel_cents,
                 "fuel_clause_adjustment_hkd": round(fuel_cents / 100.0, 4),
                 "special_fuel_rebate_cents": tariff.get("special_fuel_rebate_cents", 0.0),
+                "energy_saving_rebate_hkd": round(float(tariff.get("rebate", 0.172)), 4),
                 "subsidy_hkd": self._parent.custom_subsidy or 0.0,
+                "tariff_period": f"{ym[0]}-{ym[1]:02d}" if ym else None,
+                "calculation_basis": "Effective Rate = Estimated Total Cost / Estimated Total Consumption",
+                "last_tariff_synced": tariff.get("last_synced"),
+            }
+        elif self._sub_key == "base_tariff":
+            tariff = self._parent.latest_tariff or {}
+            ym = tariff.get("year_month")
+            est = self._parent.estimation or {}
+            curr_kwh = est.get("current_consumption") or est.get("estimation_consumption") or 0.0
+            tier = 1
+            if curr_kwh > 4200:
+                tier = 7
+            elif curr_kwh > 3400:
+                tier = 6
+            elif curr_kwh > 2600:
+                tier = 5
+            elif curr_kwh > 1800:
+                tier = 4
+            elif curr_kwh > 1000:
+                tier = 3
+            elif curr_kwh > 400:
+                tier = 2
+
+            tier_rates = [0.945, 1.079, 1.237, 1.545, 1.774, 1.878, 1.890]
+            current_tier_rate = tier_rates[tier - 1]
+
+            return {
+                "unit": "HKD/kWh",
+                "tier_1_first_400kwh": 0.945,
+                "tier_2_next_600kwh": 1.079,
+                "tier_3_next_800kwh": 1.237,
+                "tier_4_next_800kwh": 1.545,
+                "tier_5_next_800kwh": 1.774,
+                "tier_6_next_800kwh": 1.878,
+                "tier_7_above_4200kwh": 1.890,
+                "current_tier": tier,
+                "current_tier_rate": current_tier_rate,
                 "tariff_period": f"{ym[0]}-{ym[1]:02d}" if ym else None,
                 "last_tariff_synced": tariff.get("last_synced"),
             }
