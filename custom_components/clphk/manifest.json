@@ -1,12 +1,12 @@
 {
   "version": "14.3.0",
-  "issue_tracker": "https://github.com/kanshurichard/home-assistant-clp/issues",
+  "issue_tracker": "https://github.com/thematrixdev/home-assistant-clp/issues",
 
   "domain": "clphk",
   "name": "CLPHK",
   "integration_type": "service",
-  "documentation": "https://github.com/kanshurichard/home-assistant-clp",
-  "codeowners": ["@kanshurichard", "@thematrixdev"],
+  "documentation": "https://github.com/thematrixdev/home-assistant-clp",
+  "codeowners": ["@thematrixdev", "@kanshurichard"],
   "config_flow": true,
   "requirements": [
     "curl_cffi>=0.15.0"

@@ -58,7 +58,7 @@ Seamlessly sync electricity bills, current cycle estimations, progressive tiered
 1. Ensure [HACS](https://hacs.xyz/docs/setup/prerequisites) is installed.
 2. In Home Assistant, click **HACS** on the left menu ➔ **Integrations**.
 3. Click the top-right menu icon (three dots) ➔ **Custom repositories**.
-4. Enter `https://github.com/kanshurichard/home-assistant-clp`, select `Integration`, and click **Add**.
+4. Enter `https://github.com/thematrixdev/home-assistant-clp`, select `Integration`, and click **Add**.
 5. Find **CLPHK** in the list and click **Download**.
 6. Restart Home Assistant.
 
@@ -223,8 +223,22 @@ If CLP invalidates your session, Home Assistant displays a **"Reconfigure"** bad
 
 ---
 
+## Community & Unofficial Support
+
+- **Telegram Group**: https://t.me/smarthomehk
+
+---
+
 ## Tested On
 
 - Home Assistant Container 2026.11+
 - Python 3.13 / 3.14
 - Linux aarch64 & x86_64
+
+---
+
+## Authors & Maintainers
+
+* **Author & Original Creator**: [@thematrixdev](https://github.com/thematrixdev)
+* **Contributor & Co-Maintainer**: [@kanshurichard](https://github.com/kanshurichard)
+

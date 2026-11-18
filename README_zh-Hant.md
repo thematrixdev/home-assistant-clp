@@ -60,7 +60,7 @@
 1. 確保已安裝 [HACS](https://hacs.xyz/docs/setup/prerequisites)
 2. 在 Home Assistant 側邊欄點選 **HACS** ➔ **Integrations（整合）**
 3. 點選右上角選單按鈕（三個點） ➔ 選擇 **Custom repositories（自訂儲存庫）**
-4. 類別選擇 `Integration`，填入儲存庫網址 `https://github.com/kanshurichard/home-assistant-clp` 並點選 **新增**
+4. 類別選擇 `Integration`，填入儲存庫網址 `https://github.com/thematrixdev/home-assistant-clp` 並點選 **新增**
 5. 在整合列表中找到 **CLPHK**，點選右下角 **下載**
 6. 重啟 Home Assistant
 
@@ -238,8 +238,22 @@
 
 ---
 
+## 社群與非官方交流群
+
+- **Telegram 交流群**：https://t.me/smarthomehk
+
+---
+
 ## 測試環境
 
 - Home Assistant Container 2026.11+
 - Python 3.13 / 3.14
 - Linux aarch64 & x86_64
+
+---
+
+## 作者與維護者
+
+* **原作者與主要維護者**：[@thematrixdev](https://github.com/thematrixdev)
+* **貢獻者與共同維護者**：[@kanshurichard](https://github.com/kanshurichard)
+
