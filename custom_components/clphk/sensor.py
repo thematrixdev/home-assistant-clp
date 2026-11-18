@@ -137,7 +137,7 @@ async def async_setup_platform(
         ("outstanding", "Outstanding Amount", SensorDeviceClass.MONETARY, "HKD", None),
         ("base_tariff", "Base Tariff Rate", None, "HKD/kWh", None),
         ("fuel_adjustment", "Fuel Clause Adjustment", None, "HKD/kWh", None),
-        ("tariff_rate", "Effective Tariff Rate", None, "HKD/kWh", None),
+        ("tariff_rate", "Projected Effective Tariff Rate", None, "HKD/kWh", None),
     ]
     for sub_key, sub_name, dev_class, unit, state_class in sub_sensor_configs:
         entities.append(
@@ -1516,7 +1516,10 @@ class CLPSubSensor(SensorEntity):
         self._parent = parent
         self._sub_key = sub_key
         self._attr_name = name
-        self._attr_suggested_object_id = f"clp_{sub_key}"
+        if sub_key == "tariff_rate":
+            self._attr_suggested_object_id = "clp_projected_effective_tariff_rate"
+        else:
+            self._attr_suggested_object_id = f"clp_{sub_key}"
         self._attr_unique_id = f"clphk_{parent.sensor_type}_{sub_key}"
         self._attr_device_class = device_class
         self._attr_native_unit_of_measurement = unit_of_measurement
