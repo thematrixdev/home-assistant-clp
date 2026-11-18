@@ -30,6 +30,7 @@ from homeassistant.const import (
     CONF_NAME,
     CONF_TIMEOUT,
     CONF_TYPE,
+    EntityCategory,
     UnitOfEnergy,
 )
 from homeassistant.core import HomeAssistant
@@ -43,6 +44,7 @@ from .const import (
     DEFAULT_TIER_LIMITS,
     DEFAULT_TIER_RATES,
     calculate_residential_bill,
+    calculate_tier_consumption,
     is_auth_failure,
     is_transient,
     parse_comma_floats,
@@ -139,16 +141,18 @@ async def async_setup_platform(
 
     # Add child sensors for main sensor
     sub_sensor_configs = [
-        ("projected_cost", "Projected Cost", SensorDeviceClass.MONETARY, "HKD", None),
-        ("current_consumption", "Current Period Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, None),
-        ("projected_consumption", "Projected Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, None),
-        ("last_bill", "Last Bill Amount", SensorDeviceClass.MONETARY, "HKD", None),
-        ("outstanding", "Outstanding Amount", SensorDeviceClass.MONETARY, "HKD", None),
-        ("base_tariff", "Base Tariff Rate", None, "HKD/kWh", None),
-        ("fuel_adjustment", "Fuel Clause Adjustment", None, "HKD/kWh", None),
-        ("tariff_rate", "Projected Effective Tariff Rate", None, "HKD/kWh", None),
+        ("projected_cost", "Projected Cost", SensorDeviceClass.MONETARY, "HKD", None, None),
+        ("current_consumption", "Current Period Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, None, None),
+        ("projected_consumption", "Projected Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, None, None),
+        ("last_bill", "Last Bill Amount", SensorDeviceClass.MONETARY, "HKD", None, None),
+        ("outstanding", "Outstanding Amount", SensorDeviceClass.MONETARY, "HKD", None, None),
+        ("base_tariff", "Base Tariff Rate", None, "HKD/kWh", None, None),
+        ("fuel_adjustment", "Fuel Clause Adjustment", None, "HKD/kWh", None, None),
+        ("tariff_rate", "Projected Effective Tariff Rate", None, "HKD/kWh", None, None),
+        ("tier_consumption", "Tier Consumption", None, None, None, EntityCategory.DIAGNOSTIC),
+        ("tier_rates", "Tier Rates", None, "HKD/kWh", None, EntityCategory.DIAGNOSTIC),
     ]
-    for sub_key, sub_name, dev_class, unit, state_class in sub_sensor_configs:
+    for sub_key, sub_name, dev_class, unit, state_class, ent_cat in sub_sensor_configs:
         entities.append(
             CLPSubSensor(
                 parent=main_sensor,
@@ -157,6 +161,7 @@ async def async_setup_platform(
                 device_class=dev_class,
                 unit_of_measurement=unit,
                 state_class=state_class,
+                entity_category=ent_cat,
             )
         )
 
@@ -1601,6 +1606,7 @@ class CLPSubSensor(SensorEntity):
         device_class: SensorDeviceClass | None,
         unit_of_measurement: str | None,
         state_class: SensorStateClass | None = None,
+        entity_category: EntityCategory | None = None,
     ) -> None:
         self._parent = parent
         self._sub_key = sub_key
@@ -1613,11 +1619,24 @@ class CLPSubSensor(SensorEntity):
         self._attr_device_class = device_class
         self._attr_native_unit_of_measurement = unit_of_measurement
         self._attr_state_class = state_class
+        self._attr_entity_category = entity_category
         self._attr_should_poll = False
 
     @property
     def device_info(self) -> DeviceInfo:
         return self._parent.device_info
+
+    @property
+    def icon(self) -> str | None:
+        if self._sub_key == "tier_consumption":
+            return "mdi:chart-box-outline"
+        elif self._sub_key == "tier_rates":
+            return "mdi:format-list-numbered"
+        elif self._sub_key in ("base_tariff", "tariff_rate"):
+            return "mdi:cash-multiple"
+        elif self._sub_key == "fuel_adjustment":
+            return "mdi:gas-burner"
+        return None
 
     @property
     def native_value(self):
@@ -1647,6 +1666,23 @@ class CLPSubSensor(SensorEntity):
             return round(fuel_cents / 100.0, 4)
         elif self._sub_key == "tariff_rate":
             return self._parent.get_effective_tariff_rate()
+        elif self._sub_key == "tier_consumption":
+            curr_kwh = safe_float(est.get("current_consumption"))
+            if curr_kwh is None:
+                curr_kwh = safe_float(est.get("estimation_consumption"))
+            tier_limits = self._parent.get_effective_tier_limits()
+            tier_rates = self._parent.get_effective_tier_rates()
+            dist = calculate_tier_consumption(curr_kwh or 0.0, tier_limits, len(tier_rates))
+            return f"Tier {dist['current_tier']}"
+        elif self._sub_key == "tier_rates":
+            curr_kwh = safe_float(est.get("current_consumption"))
+            if curr_kwh is None:
+                curr_kwh = safe_float(est.get("estimation_consumption"))
+            tier_limits = self._parent.get_effective_tier_limits()
+            tier_rates = self._parent.get_effective_tier_rates()
+            dist = calculate_tier_consumption(curr_kwh or 0.0, tier_limits, len(tier_rates))
+            curr_tier = dist["current_tier"]
+            return round(float(tier_rates[curr_tier - 1]), 4) if tier_rates else 0.945
         return None
 
     @property
@@ -1738,6 +1774,94 @@ class CLPSubSensor(SensorEntity):
                 "tariff_period": tariff_period,
                 "last_tariff_synced": tariff.get("last_synced"),
             }
+        elif self._sub_key == "tier_consumption":
+            est = self._parent.estimation or {}
+            curr_kwh = safe_float(est.get("current_consumption")) or 0.0
+            proj_kwh = safe_float(est.get("estimation_consumption")) or 0.0
+            tier_rates = self._parent.get_effective_tier_rates()
+            tier_limits = self._parent.get_effective_tier_limits()
+            n_tiers = len(tier_rates)
+
+            actual_dist = calculate_tier_consumption(curr_kwh, tier_limits, n_tiers)
+            proj_dist = calculate_tier_consumption(proj_kwh, tier_limits, n_tiers)
+
+            curr_tier = actual_dist["current_tier"]
+            tier_used = actual_dist["tier_used"]
+            tier_remaining = actual_dist["tier_remaining"]
+
+            attrs = {
+                "current_tier": curr_tier,
+                "total_tiers": n_tiers,
+                "current_consumption_kwh": round(curr_kwh, 2),
+                "projected_consumption_kwh": round(proj_kwh, 2),
+                "projected_tier": proj_dist["current_tier"],
+                "current_tier_used_kwh": tier_used[curr_tier - 1] if curr_tier <= len(tier_used) else 0.0,
+            }
+            if curr_tier <= len(tier_limits):
+                attrs["current_tier_limit_kwh"] = tier_limits[curr_tier - 1]
+                attrs["current_tier_remaining_kwh"] = tier_remaining[curr_tier - 1] if curr_tier <= len(tier_remaining) else 0.0
+            else:
+                attrs["current_tier_limit_kwh"] = f"> {int(sum(tier_limits))}" if tier_limits else "all"
+                attrs["current_tier_remaining_kwh"] = "unbounded"
+
+            breakdown = {}
+            proj_breakdown = {}
+            for i in range(n_tiers):
+                t_idx = i + 1
+                used = tier_used[i] if i < len(tier_used) else 0.0
+                attrs[f"tier_{t_idx}_used_kwh"] = used
+                breakdown[f"tier_{t_idx}"] = used
+
+                p_used = proj_dist["tier_used"][i] if i < len(proj_dist["tier_used"]) else 0.0
+                attrs[f"projected_tier_{t_idx}_used_kwh"] = p_used
+                proj_breakdown[f"tier_{t_idx}"] = p_used
+
+                if i < len(tier_limits):
+                    attrs[f"tier_{t_idx}_limit_kwh"] = tier_limits[i]
+                    attrs[f"tier_{t_idx}_remaining_kwh"] = tier_remaining[i] if i < len(tier_remaining) else 0.0
+                else:
+                    attrs[f"tier_{t_idx}_limit_kwh"] = f"> {int(sum(tier_limits))}" if tier_limits else "all"
+                    attrs[f"tier_{t_idx}_remaining_kwh"] = "unbounded"
+
+            attrs["tier_consumption_breakdown"] = breakdown
+            attrs["projected_tier_breakdown"] = proj_breakdown
+            return attrs
+        elif self._sub_key == "tier_rates":
+            tariff = self._parent.latest_tariff or {}
+            ym = tariff.get("year_month")
+            tariff_period = f"{ym[0]}-{ym[1]:02d}" if isinstance(ym, (tuple, list)) and len(ym) >= 2 else None
+            est = self._parent.estimation or {}
+            curr_kwh = safe_float(est.get("current_consumption")) or 0.0
+            tier_rates = self._parent.get_effective_tier_rates()
+            tier_limits = self._parent.get_effective_tier_limits()
+            n_tiers = len(tier_rates)
+
+            dist = calculate_tier_consumption(curr_kwh, tier_limits, n_tiers)
+            curr_tier = dist["current_tier"]
+            current_tier_rate = round(float(tier_rates[curr_tier - 1]), 4) if tier_rates else 0.945
+
+            attrs = {
+                "current_tier": curr_tier,
+                "current_tier_rate_hkd": current_tier_rate,
+                "total_tiers": n_tiers,
+                "tier_rates_hkd": tier_rates,
+                "tier_limits_kwh": tier_limits,
+                "is_custom_tier_override": bool(self._parent.custom_tier_rates or self._parent.custom_tier_limits),
+                "tariff_period": tariff_period,
+                "last_tariff_synced": tariff.get("last_synced"),
+            }
+            rates_breakdown = {}
+            for i, rate in enumerate(tier_rates):
+                t_idx = i + 1
+                attrs[f"tier_{t_idx}_rate_hkd"] = rate
+                rates_breakdown[f"tier_{t_idx}"] = rate
+                if i < len(tier_limits):
+                    attrs[f"tier_{t_idx}_limit_kwh"] = tier_limits[i]
+                else:
+                    attrs[f"tier_{t_idx}_limit_kwh"] = f"> {int(sum(tier_limits))}" if tier_limits else "all"
+
+            attrs["tier_rates_breakdown"] = rates_breakdown
+            return attrs
         return {}
 
     @property

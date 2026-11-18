@@ -340,6 +340,51 @@ def calculate_residential_bill(
         "effective_rate": effective_rate,
     }
 
+
+def calculate_tier_consumption(
+    kwh: float,
+    tier_limits: list[float] | None = None,
+    total_tiers: int | None = None,
+) -> dict:
+    """Calculate the distribution of energy consumption across progressive tariff tiers.
+
+    Returns:
+    - current_tier: active tier index (1-based)
+    - tier_used: list of kWh used in each tier [used_1, used_2, ...]
+    - tier_remaining: list of remaining kWh quota in each bounded tier, None for unbounded
+    - breakdown: dict mapping tier_1, tier_2... to used kWh
+    """
+    rem = max(0.0, float(kwh or 0.0))
+    limits = list(tier_limits) if tier_limits is not None else DEFAULT_TIER_LIMITS
+    n = total_tiers if (total_tiers and total_tiers > 0) else (len(limits) + 1)
+
+    tier_used = []
+    tier_remaining = []
+    curr_tier = 1
+    accum = 0.0
+    for idx, limit in enumerate(limits[: n - 1] if n > 1 else []):
+        take = min(rem, limit)
+        tier_used.append(round(take, 2))
+        rem -= take
+        accum += limit
+        if float(kwh or 0.0) > accum:
+            curr_tier = idx + 2
+        tier_remaining.append(round(max(0.0, limit - take), 2))
+
+    if n > len(limits[: n - 1] if n > 1 else []):
+        tier_used.append(round(rem, 2))
+        tier_remaining.append(None)
+
+    curr_tier = min(curr_tier, n) if n else 1
+
+    return {
+        "current_tier": curr_tier,
+        "total_tiers": n,
+        "tier_used": tier_used,
+        "tier_remaining": tier_remaining,
+        "breakdown": {f"tier_{i+1}": tier_used[i] for i in range(len(tier_used))},
+    }
+
 CONF_GET_ACCT = 'get_account'
 CONF_GET_BILL = 'get_bill'
 CONF_GET_ESTIMATION = 'get_estimation'

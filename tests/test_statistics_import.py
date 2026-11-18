@@ -12,6 +12,7 @@ from const import (
     DEFAULT_TIER_LIMITS,
     DEFAULT_TIER_RATES,
     calculate_residential_bill,
+    calculate_tier_consumption,
     parse_comma_floats,
     reconcile_tariff_tiers,
 )
@@ -222,6 +223,44 @@ class TestStatisticsImport(unittest.TestCase):
         # net = 600 + 200 = 800.00 HKD
         self.assertEqual(res_flat["basic_tariff"], 600.00)
         self.assertEqual(res_flat["total"], 800.00)
+
+    def test_calculate_tier_consumption(self):
+        # Test Case 1: Standard 7 tiers, 229.8 kWh (inside tier 1)
+        res1 = calculate_tier_consumption(229.8, DEFAULT_TIER_LIMITS, 7)
+        self.assertEqual(res1["current_tier"], 1)
+        self.assertEqual(res1["total_tiers"], 7)
+        self.assertEqual(res1["tier_used"][0], 229.8)
+        self.assertEqual(res1["tier_used"][1], 0.0)
+        self.assertEqual(res1["tier_remaining"][0], 170.2)
+        self.assertEqual(res1["tier_remaining"][1], 600.0)
+        self.assertIsNone(res1["tier_remaining"][6])
+
+        # Test Case 2: 550 kWh (crosses into tier 2)
+        res2 = calculate_tier_consumption(550.0, DEFAULT_TIER_LIMITS, 7)
+        self.assertEqual(res2["current_tier"], 2)
+        self.assertEqual(res2["tier_used"][0], 400.0)
+        self.assertEqual(res2["tier_used"][1], 150.0)
+        self.assertEqual(res2["tier_remaining"][0], 0.0)
+        self.assertEqual(res2["tier_remaining"][1], 450.0)
+
+        # Test Case 3: 5000 kWh (crosses into tier 7 above 4200 kWh)
+        res3 = calculate_tier_consumption(5000.0, DEFAULT_TIER_LIMITS, 7)
+        self.assertEqual(res3["current_tier"], 7)
+        self.assertEqual(res3["tier_used"][0], 400.0)
+        self.assertEqual(res3["tier_used"][5], 800.0)
+        self.assertEqual(res3["tier_used"][6], 800.0) # 5000 - 4200 = 800
+
+        # Test Case 4: 3 tiers, limits = [200, 300], 350 kWh
+        res4 = calculate_tier_consumption(350.0, [200.0, 300.0], 3)
+        self.assertEqual(res4["current_tier"], 2)
+        self.assertEqual(res4["tier_used"], [200.0, 150.0, 0.0])
+        self.assertEqual(res4["tier_remaining"], [0.0, 150.0, None])
+
+        # Test Case 5: 1 flat tier, 150 kWh
+        res5 = calculate_tier_consumption(150.0, [], 1)
+        self.assertEqual(res5["current_tier"], 1)
+        self.assertEqual(res5["tier_used"], [150.0])
+        self.assertEqual(res5["tier_remaining"], [None])
 
 if __name__ == "__main__":
     unittest.main()
