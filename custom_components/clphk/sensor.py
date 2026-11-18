@@ -162,7 +162,7 @@ async def async_setup_platform(
     # Add child sensors for main sensor
     sub_sensor_configs = [
         ("projected_cost", "Projected Cost", SensorDeviceClass.MONETARY, "HKD", None),
-        ("current_consumption", "Current Period Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, SensorStateClass.TOTAL),
+        ("current_consumption", "Current Period Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, None),
         ("projected_consumption", "Projected Consumption", SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, None),
         ("last_bill", "Last Bill Amount", SensorDeviceClass.MONETARY, "HKD", None),
         ("outstanding", "Outstanding Amount", SensorDeviceClass.MONETARY, "HKD", None),
@@ -923,6 +923,53 @@ class CLPSensor(SensorEntity):
             base_sum,
         )
         async_add_external_statistics(self.hass, metadata, statistics)
+
+        # Also import hourly cost statistics
+        effective_rate = self.get_effective_tariff_rate()
+        statistic_cost_id = f"{DOMAIN}:{self._sensor_type}_hourly_cost"
+        base_cost_sum = 0.0
+        try:
+            last_cost_stats = await get_instance(self.hass).async_add_executor_job(
+                get_last_statistics, self.hass, 200, statistic_cost_id, True, {"sum"}
+            )
+            if last_cost_stats and statistic_cost_id in last_cost_stats:
+                for stat in last_cost_stats[statistic_cost_id]:
+                    s_time = stat.get("start")
+                    rec_ts = float(s_time) if isinstance(s_time, (int, float)) else (s_time.timestamp() if hasattr(s_time, "timestamp") else None)
+                    if rec_ts is not None and rec_ts < earliest_ts:
+                        base_cost_sum = stat.get("sum") or 0.0
+                        break
+        except Exception as ex:
+            _LOGGER.debug("Could not query base cost statistics for %s: %s", statistic_cost_id, ex)
+
+        cost_statistics: list[StatisticData] = []
+        running_cost_sum = base_cost_sum
+        for ts in all_utc_timestamps:
+            kwh = raw_by_utc[ts]
+            cost = round(kwh * effective_rate, 4)
+            running_cost_sum = round(running_cost_sum + cost, 4)
+            cost_statistics.append(
+                StatisticData(
+                    start=ts,
+                    state=cost,
+                    sum=running_cost_sum,
+                )
+            )
+
+        meta_cost_kwargs: dict = {
+            "has_mean": False,
+            "has_sum": True,
+            "name": f"{self._name} Hourly Cost",
+            "source": DOMAIN,
+            "statistic_id": statistic_cost_id,
+            "unit_of_measurement": "HKD",
+        }
+        if StatisticMeanType is not None:
+            meta_cost_kwargs["mean_type"] = StatisticMeanType.NONE
+            meta_cost_kwargs["unit_class"] = None
+
+        metadata_cost = StatisticMetaData(**meta_cost_kwargs)
+        async_add_external_statistics(self.hass, metadata_cost, cost_statistics)
 
     async def _import_daily_statistics(self, daily_records: list[dict]):
         """Import official daily energy data directly into Home Assistant Recorder Statistics.
