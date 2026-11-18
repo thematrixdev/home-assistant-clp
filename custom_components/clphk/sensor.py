@@ -40,12 +40,15 @@ from homeassistant.util import Throttle
 
 from .const import (
     CONF_DOMAIN,
+    DEFAULT_TIER_LIMITS,
+    DEFAULT_TIER_RATES,
     calculate_residential_bill,
     is_auth_failure,
     is_transient,
     parse_comma_floats,
     parse_datetime,
     parse_refresh_tokens,
+    reconcile_tariff_tiers,
     safe_float,
     CONF_GET_ACCT,
     CONF_GET_BILL,
@@ -353,17 +356,25 @@ class CLPSensor(SensorEntity):
     def custom_tier_limits(self) -> list[float] | None:
         return self._custom_tier_limits
 
-    def get_effective_tier_rates(self) -> list[float]:
-        if self._custom_tier_rates:
-            return self._custom_tier_rates
+    def get_effective_tiers(self) -> tuple[list[float], list[float]]:
+        """Return harmonized (rates, limits) adaptive to any number of tiers N."""
         tariff = self._latest_tariff or {}
-        return tariff.get("tier_rates") or [0.945, 1.079, 1.237, 1.545, 1.774, 1.878, 1.890]
+        base_rates = tariff.get("tier_rates")
+        base_limits = tariff.get("tier_limits")
+        return reconcile_tariff_tiers(
+            custom_rates=self._custom_tier_rates,
+            custom_limits=self._custom_tier_limits,
+            base_rates=base_rates,
+            base_limits=base_limits,
+        )
+
+    def get_effective_tier_rates(self) -> list[float]:
+        rates, _ = self.get_effective_tiers()
+        return rates
 
     def get_effective_tier_limits(self) -> list[float]:
-        if self._custom_tier_limits:
-            return self._custom_tier_limits
-        tariff = self._latest_tariff or {}
-        return tariff.get("tier_limits") or [400.0, 600.0, 800.0, 800.0, 800.0, 800.0]
+        _, limits = self.get_effective_tiers()
+        return limits
 
     async def async_fetch_monthly_tariff(self, force: bool = False) -> dict:
         """Fetch latest residential tariff rates from CLP official API."""
@@ -384,7 +395,7 @@ class CLPSensor(SensorEntity):
                 body = {
                     "StartDate": start_date,
                     "TariffType": "DT",
-                    "OnPeakPeriod": "0000005000",
+                    "OnPeakPeriod": "0000099999",
                     "NoOfDays": "60",
                 }
                 resp = await session.post(
@@ -426,8 +437,8 @@ class CLPSensor(SensorEntity):
                         "fuel_cents": fuel_rate,
                         "special_fuel_rebate_cents": special_rebate,
                         "energy_charge": tier_rates[0] if tier_rates else energy_charge,
-                        "tier_rates": tier_rates or [0.945, 1.079, 1.237, 1.545, 1.774, 1.878, 1.890],
-                        "tier_limits": tier_limits or [400.0, 600.0, 800.0, 800.0, 800.0, 800.0],
+                        "tier_rates": tier_rates or list(DEFAULT_TIER_RATES),
+                        "tier_limits": tier_limits if tier_rates else list(DEFAULT_TIER_LIMITS),
                         "rebate": rebate,
                         "last_synced": now.isoformat(),
                     }
@@ -1689,12 +1700,14 @@ class CLPSubSensor(SensorEntity):
                     tier = idx + 2
                 else:
                     break
-            tier = min(tier, len(tier_rates))
-            current_tier_rate = tier_rates[tier - 1]
+            tier = min(tier, len(tier_rates)) if tier_rates else 1
+            current_tier_rate = tier_rates[tier - 1] if tier_rates else 0.945
 
+            tier_1_limit_desc = f"first {int(tier_limits[0])} kWh" if tier_limits else "all consumption"
             attrs = {
-                "description": f"Base tariff rate for tier 1 (first {int(tier_limits[0]) if tier_limits else 400} kWh). See current_tier_rate for rate based on consumption.",
+                "description": f"Base tariff rate for tier 1 ({tier_1_limit_desc}). See current_tier_rate for rate based on consumption.",
                 "unit": "HKD/kWh",
+                "total_tiers": len(tier_rates),
                 "current_tier": tier,
                 "current_tier_rate": current_tier_rate,
                 "tier_rates_hkd": tier_rates,
@@ -1703,11 +1716,17 @@ class CLPSubSensor(SensorEntity):
                 "tariff_period": tariff_period,
                 "last_tariff_synced": tariff.get("last_synced"),
             }
-            for idx, (rate, limit) in enumerate(zip(tier_rates, tier_limits)):
+            for idx, limit in enumerate(tier_limits):
                 attrs[f"tier_{idx+1}_limit_kwh"] = limit
-                attrs[f"tier_{idx+1}_rate_hkd"] = rate
-            if len(tier_rates) > len(tier_limits):
-                attrs[f"tier_{len(tier_rates)}_rate_hkd"] = tier_rates[-1]
+                if idx < len(tier_rates):
+                    attrs[f"tier_{idx+1}_rate_hkd"] = tier_rates[idx]
+            if tier_rates:
+                last_idx = len(tier_rates)
+                attrs[f"tier_{last_idx}_rate_hkd"] = tier_rates[-1]
+                if tier_limits:
+                    attrs[f"tier_{last_idx}_limit_kwh"] = f"> {int(sum(tier_limits))}"
+                else:
+                    attrs[f"tier_{last_idx}_limit_kwh"] = "all"
             return attrs
         elif self._sub_key == "fuel_adjustment":
             tariff = self._parent.latest_tariff or {}

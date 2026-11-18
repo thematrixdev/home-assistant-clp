@@ -8,7 +8,13 @@ sys.path.insert(
     os.path.join(os.path.dirname(__file__), "..", "custom_components", "clphk"),
 )
 
-from const import calculate_residential_bill, parse_comma_floats
+from const import (
+    DEFAULT_TIER_LIMITS,
+    DEFAULT_TIER_RATES,
+    calculate_residential_bill,
+    parse_comma_floats,
+    reconcile_tariff_tiers,
+)
 
 class TestStatisticsImport(unittest.TestCase):
     def test_dedup_and_sort(self):
@@ -126,8 +132,9 @@ class TestStatisticsImport(unittest.TestCase):
         self.assertEqual(res8["total"], 260.40)
         self.assertEqual(res8["basic_tariff"], 200.00)
 
-        # Test Case 9: parse_comma_floats
+        # Test Case 9: parse_comma_floats (English and Chinese commas)
         self.assertEqual(parse_comma_floats("0.945, 1.079, 1.237"), [0.945, 1.079, 1.237])
+        self.assertEqual(parse_comma_floats("0.945，1.079，1.237"), [0.945, 1.079, 1.237])
         self.assertEqual(parse_comma_floats([400, 600, 800]), [400.0, 600.0, 800.0])
         self.assertIsNone(parse_comma_floats(""))
         self.assertIsNone(parse_comma_floats(None))
@@ -136,6 +143,85 @@ class TestStatisticsImport(unittest.TestCase):
         # Test Case 10: days <= 0 defensive boundary
         res10 = calculate_residential_bill(100.0, 0, 47.4)
         self.assertGreater(res10["total"], 0)
+
+    def test_reconcile_tariff_tiers(self):
+        # 1. Default (None, None): returns 7 rates and 6 limits
+        rates, limits = reconcile_tariff_tiers(None, None)
+        self.assertEqual(len(rates), 7)
+        self.assertEqual(len(limits), 6)
+        self.assertEqual(rates, DEFAULT_TIER_RATES)
+        self.assertEqual(limits, DEFAULT_TIER_LIMITS)
+
+        # 2. 3 custom rates, no limits: adapts first 2 limits from default
+        rates, limits = reconcile_tariff_tiers(custom_rates=[1.0, 1.5, 2.0], custom_limits=None)
+        self.assertEqual(rates, [1.0, 1.5, 2.0])
+        self.assertEqual(limits, [400.0, 600.0])
+
+        # 3. 3 custom rates, 2 custom limits: matches 1-to-1
+        rates, limits = reconcile_tariff_tiers(custom_rates=[1.0, 1.5, 2.0], custom_limits=[200.0, 300.0])
+        self.assertEqual(rates, [1.0, 1.5, 2.0])
+        self.assertEqual(limits, [200.0, 300.0])
+
+        # 4. 3 custom rates, 3 custom limits (over-specified): truncated to 2 limits
+        rates, limits = reconcile_tariff_tiers(custom_rates=[1.0, 1.5, 2.0], custom_limits=[200.0, 300.0, 400.0])
+        self.assertEqual(rates, [1.0, 1.5, 2.0])
+        self.assertEqual(limits, [200.0, 300.0])
+
+        # 5. 1 flat custom rate: 0 limits
+        rates, limits = reconcile_tariff_tiers(custom_rates=[1.25], custom_limits=None)
+        self.assertEqual(rates, [1.25])
+        self.assertEqual(limits, [])
+
+        # 6. Custom limits only (e.g. 2 limits): adapts first 3 rates from default
+        rates, limits = reconcile_tariff_tiers(custom_rates=None, custom_limits=[250.0, 350.0])
+        self.assertEqual(rates, [0.945, 1.079, 1.237])
+        self.assertEqual(limits, [250.0, 350.0])
+
+        # 7. Adaptive to CLP fetched arbitrary N tiers (e.g. 4 tiers)
+        base_rates = [0.9, 1.2, 1.6, 2.0]
+        base_limits = [500.0, 500.0, 500.0]
+        rates, limits = reconcile_tariff_tiers(None, None, base_rates=base_rates, base_limits=base_limits)
+        self.assertEqual(rates, [0.9, 1.2, 1.6, 2.0])
+        self.assertEqual(limits, [500.0, 500.0, 500.0])
+
+    def test_adaptive_calculate_residential_bill(self):
+        # 3-tier custom pricing: Tier 1: <= 200 kWh @ 1.0 HKD, Tier 2: 201-500 kWh @ 1.5 HKD, Tier 3: > 500 kWh @ 2.0 HKD
+        rates = [1.0, 1.5, 2.0]
+        limits = [200.0, 300.0]
+
+        # Consump 150 kWh (Tier 1): 150 * 1.00 = 150 HKD (15000 cents)
+        # fuel: 150 * 0.40 = 60 HKD
+        # rebate (150 <= 200): 150 * 0.172 = 25.80 HKD
+        # net = 150 + 60 - 25.80 = 184.20 HKD
+        res_t1 = calculate_residential_bill(150.0, 60, fuel_cents=40.0, tier_rates=rates, tier_limits=limits)
+        self.assertEqual(res_t1["basic_tariff"], 150.00)
+        self.assertEqual(res_t1["total"], 184.20)
+
+        # Consump 350 kWh (Crosses into Tier 2: 200 @ 1.0, 150 @ 1.5):
+        # basic: 200 * 1.0 + 150 * 1.5 = 200 + 225 = 425 HKD
+        # fuel: 350 * 0.40 = 140 HKD
+        # rebate (301..400): 350 * 0.152 = 53.20 HKD
+        # net = 425 + 140 - 53.20 = 511.80 HKD
+        res_t2 = calculate_residential_bill(350.0, 60, fuel_cents=40.0, tier_rates=rates, tier_limits=limits)
+        self.assertEqual(res_t2["basic_tariff"], 425.00)
+        self.assertEqual(res_t2["total"], 511.80)
+
+        # Consump 700 kWh (Crosses into Tier 3: 200 @ 1.0, 300 @ 1.5, 200 @ 2.0):
+        # basic: 200 * 1.0 + 300 * 1.5 + 200 * 2.0 = 200 + 450 + 400 = 1050 HKD
+        # fuel: 700 * 0.40 = 280 HKD
+        # rebate: 0 (700 > 400)
+        # net = 1050 + 280 = 1330.00 HKD
+        res_t3 = calculate_residential_bill(700.0, 60, fuel_cents=40.0, tier_rates=rates, tier_limits=limits)
+        self.assertEqual(res_t3["basic_tariff"], 1050.00)
+        self.assertEqual(res_t3["total"], 1330.00)
+
+        # 1-tier flat pricing via tier_rates=[1.20]
+        res_flat = calculate_residential_bill(500.0, 60, fuel_cents=40.0, tier_rates=[1.20])
+        # basic: 500 * 1.20 = 600 HKD
+        # fuel: 500 * 0.40 = 200 HKD
+        # net = 600 + 200 = 800.00 HKD
+        self.assertEqual(res_flat["basic_tariff"], 600.00)
+        self.assertEqual(res_flat["total"], 800.00)
 
 if __name__ == "__main__":
     unittest.main()

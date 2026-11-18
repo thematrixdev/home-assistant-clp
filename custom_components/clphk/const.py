@@ -167,8 +167,15 @@ def parse_datetime(value, fmt):
         return None
 
 
+DEFAULT_TIER_RATES = [0.945, 1.079, 1.237, 1.545, 1.774, 1.878, 1.890]
+DEFAULT_TIER_LIMITS = [400.0, 600.0, 800.0, 800.0, 800.0, 800.0]
+
+
 def parse_comma_floats(value: Any) -> list[float] | None:
-    """Parse comma-separated numbers into a list of floats, or None if invalid/empty."""
+    """Parse comma-separated numbers into a list of floats, or None if invalid/empty.
+
+    Supports both English comma ',' and Chinese full-width comma '，'.
+    """
     if not value:
         return None
     if isinstance(value, (list, tuple)):
@@ -180,10 +187,74 @@ def parse_comma_floats(value: Any) -> list[float] | None:
                 continue
         return res if res else None
     try:
-        parts = [float(x.strip()) for x in str(value).split(",") if x.strip()]
+        clean_str = str(value).replace("，", ",")
+        parts = [float(x.strip()) for x in clean_str.split(",") if x.strip()]
         return parts if parts else None
     except (ValueError, TypeError):
         return None
+
+
+def reconcile_tariff_tiers(
+    custom_rates: list[float] | None = None,
+    custom_limits: list[float] | None = None,
+    base_rates: list[float] | None = None,
+    base_limits: list[float] | None = None,
+) -> tuple[list[float], list[float]]:
+    """Reconcile and adapt tier rates and tier limits for any arbitrary number of tiers N.
+
+    Progressive block tariff semantics:
+    - N tier rates require N - 1 block boundary limits (tier N is the unbounded top tier).
+    - If N == 1, limits is [] (single flat tier).
+    - If custom limits are provided with length != N - 1, they are harmonized
+      (truncated if too long, or padded from base_limits / last limit if too short).
+    - If custom limits are provided without custom rates, the expected tiers N = len(custom_limits) + 1,
+      and rates are adapted from base_rates.
+    """
+    fallback_rates = [round(float(r), 4) for r in (base_rates or DEFAULT_TIER_RATES) if float(r) > 0] or list(DEFAULT_TIER_RATES)
+    fallback_limits = [float(lim) for lim in (base_limits if base_limits is not None else DEFAULT_TIER_LIMITS) if float(lim) > 0]
+    if base_limits is None and not fallback_limits:
+        fallback_limits = list(DEFAULT_TIER_LIMITS)
+
+    user_rates = [round(float(r), 4) for r in custom_rates if float(r) > 0] if custom_rates else []
+    user_limits = [float(lim) for lim in custom_limits if float(lim) > 0] if custom_limits else []
+
+    # 1. Determine rates
+    if user_rates:
+        final_rates = list(user_rates)
+    elif user_limits:
+        needed_tiers = len(user_limits) + 1
+        final_rates = list(fallback_rates[:needed_tiers])
+        while len(final_rates) < needed_tiers:
+            final_rates.append(fallback_rates[-1] if fallback_rates else 1.890)
+    else:
+        final_rates = list(fallback_rates)
+
+    n_tiers = len(final_rates)
+
+    # 2. Determine limits (N - 1 limits for N tiers)
+    if n_tiers <= 1:
+        final_limits = []
+    else:
+        needed_limits = n_tiers - 1
+        if user_limits:
+            if len(user_limits) >= needed_limits:
+                final_limits = list(user_limits[:needed_limits])
+            else:
+                final_limits = list(user_limits)
+                for i in range(len(user_limits), needed_limits):
+                    if i < len(fallback_limits):
+                        final_limits.append(fallback_limits[i])
+                    else:
+                        final_limits.append(fallback_limits[-1] if fallback_limits else 800.0)
+        else:
+            final_limits = []
+            for i in range(needed_limits):
+                if i < len(fallback_limits):
+                    final_limits.append(fallback_limits[i])
+                else:
+                    final_limits.append(fallback_limits[-1] if fallback_limits else 800.0)
+
+    return final_rates, final_limits
 
 
 def calculate_residential_bill(
@@ -198,9 +269,8 @@ def calculate_residential_bill(
 ) -> dict:
     """Calculate CLP residential electricity bill amount based on official or custom tariff table.
 
-    Tiers (scaled by days/60 when days not in 55..65):
-    - Default limits (bi-monthly): [400, 600, 800, 800, 800, 800]
-    - Default rates (cents): [94.5, 107.9, 123.7, 154.5, 177.4, 187.8, 189.0]
+    Adaptive progressive tiers (scaled by days/60 when days not in 55..65):
+    - Automatically harmonizes arbitrary N tiers (from CLP official API or custom input).
     """
     if custom_fixed_rate is not None and custom_fixed_rate > 0:
         net_dollars = round(max(0.0, kwh * custom_fixed_rate - subsidy), 2)
@@ -217,10 +287,12 @@ def calculate_residential_bill(
     days = max(1, int(days))
     scale = (days / 60.0) if (days < 55 or days > 65) else 1.0
 
-    raw_limits = list(tier_limits) if tier_limits else [400.0, 600.0, 800.0, 800.0, 800.0, 800.0]
-    raw_rates = list(tier_rates) if tier_rates else [94.5, 107.9, 123.7, 154.5, 177.4, 187.8, 189.0]
+    calc_rates_raw, raw_limits = reconcile_tariff_tiers(
+        custom_rates=tier_rates,
+        custom_limits=tier_limits,
+    )
     # If rates are provided in HKD/kWh (< 10), convert to cents for internal calculation
-    calc_rates = [(r * 100.0 if r < 10.0 else r) for r in raw_rates]
+    calc_rates = [(r * 100.0 if r < 10.0 else r) for r in calc_rates_raw]
     scaled_limits = [lim * scale for lim in raw_limits]
 
     remaining = max(0.0, float(kwh))
@@ -231,9 +303,7 @@ def calculate_residential_bill(
         remaining -= take
         if remaining <= 0:
             break
-    if remaining > 0 and len(calc_rates) > len(scaled_limits):
-        basic_tariff_cents += remaining * calc_rates[-1]
-    elif remaining > 0 and calc_rates:
+    if remaining > 0 and calc_rates:
         basic_tariff_cents += remaining * calc_rates[-1]
 
     fuel_cents_total = max(0.0, float(kwh)) * fuel_cents
