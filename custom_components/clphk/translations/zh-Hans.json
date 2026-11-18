@@ -27,6 +27,7 @@
         "title": "中华电力 (CLP) 选项配置",
         "description": "自定义电价与费率设置、用电数据同步开关，以及可选的 Token 凭证更新（若不更新 Token 请留空对应字段）。",
         "data": {
+          "name": "集成/设备名称",
           "custom_fixed_rate": "自定义固定电价（港币/度）",
           "custom_fuel_cents": "自定义燃料调整费（分/度）",
           "custom_subsidy": "每期电费补贴/资助扣减（港币）",
@@ -74,6 +75,7 @@
         "title": "中华电力 (CLP) 集成配置",
         "description": "自定义电价与费率设置、用电数据同步开关，以及可选的 Token 凭证更新（若不更新 Token 请直接留空）。",
         "data": {
+          "name": "集成/设备名称",
           "custom_fixed_rate": "自定义固定电价（港币/度）",
           "custom_fuel_cents": "自定义燃料调整费（分/度）",
           "custom_subsidy": "每期电费补贴/资助扣减（港币）",
@@ -106,6 +108,7 @@
         "title": "中华电力 (CLP) 选项配置",
         "description": "自定义电价与费率设置、用电数据同步开关，以及可选的 Token 凭证更新（若不更新 Token 请直接留空）。",
         "data": {
+          "name": "集成/设备名称",
           "custom_fixed_rate": "自定义固定电价（港币/度）",
           "custom_fuel_cents": "自定义燃料调整费（分/度）",
           "custom_subsidy": "每期电费补贴/资助扣减（港币）",

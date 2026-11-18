@@ -27,6 +27,7 @@
         "title": "中華電力 (CLP) 選項設定",
         "description": "自訂電價與費率設定、用電資料同步開關，以及可選的 Token 憑證更新（若無需更新 Token 請留空對應欄位）。",
         "data": {
+          "name": "整合/裝置名稱",
           "custom_fixed_rate": "自訂固定電價（港幣/度）",
           "custom_fuel_cents": "自訂燃料調整費（分/度）",
           "custom_subsidy": "每期電費補貼/資助扣減（港幣）",
@@ -74,6 +75,7 @@
         "title": "中華電力 (CLP) 整合設定",
         "description": "自訂電價與費率設定、用電資料同步開關，以及可選的 Token 憑證更新（若不更新 Token 請直接留空）。",
         "data": {
+          "name": "整合/裝置名稱",
           "custom_fixed_rate": "自訂固定電價（港幣/度）",
           "custom_fuel_cents": "自訂燃料調整費（分/度）",
           "custom_subsidy": "每期電費補貼/資助扣減（港幣）",
@@ -106,6 +108,7 @@
         "title": "中華電力 (CLP) 選項設定",
         "description": "自訂電價與費率設定、用電資料同步開關，以及可選的 Token 憑證更新（若不更新 Token 請直接留空）。",
         "data": {
+          "name": "整合/裝置名稱",
           "custom_fixed_rate": "自訂固定電價（港幣/度）",
           "custom_fuel_cents": "自訂燃料調整費（分/度）",
           "custom_subsidy": "每期電費補貼/資助扣減（港幣）",

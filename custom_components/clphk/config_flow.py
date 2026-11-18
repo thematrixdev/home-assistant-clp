@@ -86,7 +86,7 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): NumberSelector(NumberSelectorConfig(min=0, max=2000, step=1, mode=NumberSelectorMode.BOX)),
             vol.Optional(
                 CONF_CUSTOM_RATE_ENTITY,
-                default=defaults.get(CONF_CUSTOM_RATE_ENTITY, ""),
+                default=str(defaults.get(CONF_CUSTOM_RATE_ENTITY, "") or ""),
             ): TextSelector(TextSelectorConfig()),
 
             # 2. Data Sync & Sensor Preferences
@@ -96,7 +96,7 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): BooleanSelector(),
             vol.Optional(
                 CONF_GET_HOURLY_DAYS,
-                default=int(defaults.get(CONF_GET_HOURLY_DAYS, 2)),
+                default=int(float(defaults.get(CONF_GET_HOURLY_DAYS, 2) or 2)),
             ): NumberSelector(NumberSelectorConfig(min=1, max=2, mode=NumberSelectorMode.BOX)),
             vol.Optional(
                 CONF_GET_DAILY,
@@ -124,6 +124,56 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_REFRESH_TOKEN,
                 default="",
             ): TextSelector(TextSelectorConfig()),
+        }
+    )
+
+
+def _build_setup_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_NAME,
+                default=str(defaults.get(CONF_NAME, "电力") or "电力"),
+            ): TextSelector(TextSelectorConfig()),
+            # 1. Electricity Tariff & Cost Configuration
+            vol.Optional(
+                CONF_CUSTOM_FIXED_RATE,
+                default=float(defaults.get(CONF_CUSTOM_FIXED_RATE, 0.0) or 0.0),
+            ): NumberSelector(NumberSelectorConfig(min=0, max=10, step=0.001, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_FUEL_CENTS,
+                default=float(defaults.get(CONF_CUSTOM_FUEL_CENTS, 0.0) or 0.0),
+            ): NumberSelector(NumberSelectorConfig(min=0, max=200, step=0.1, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_SUBSIDY,
+                default=float(defaults.get(CONF_CUSTOM_SUBSIDY, 0.0) or 0.0),
+            ): NumberSelector(NumberSelectorConfig(min=0, max=2000, step=1, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_RATE_ENTITY,
+                default=str(defaults.get(CONF_CUSTOM_RATE_ENTITY, "") or ""),
+            ): TextSelector(TextSelectorConfig()),
+
+            # 2. Data Sync & Sensor Preferences
+            vol.Optional(
+                CONF_GET_HOURLY,
+                default=bool(defaults.get(CONF_GET_HOURLY, True)),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_GET_HOURLY_DAYS,
+                default=int(float(defaults.get(CONF_GET_HOURLY_DAYS, 2) or 2)),
+            ): NumberSelector(NumberSelectorConfig(min=1, max=2, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_GET_DAILY,
+                default=bool(defaults.get(CONF_GET_DAILY, True)),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_GET_ESTIMATION,
+                default=bool(defaults.get(CONF_GET_ESTIMATION, True)),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_GET_BILL,
+                default=bool(defaults.get(CONF_GET_BILL, True)),
+            ): BooleanSelector(),
         }
     )
 
@@ -346,16 +396,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):
 
     async def async_step_options(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
+            name = (user_input.get(CONF_NAME) or "电力").strip()
             data = {
                 **user_input,
+                CONF_NAME: name,
                 CONF_ACCESS_TOKEN: self._pending[CONF_ACCESS_TOKEN],
                 CONF_REFRESH_TOKEN: self._pending[CONF_REFRESH_TOKEN],
             }
-            return self.async_create_entry(title=user_input[CONF_NAME], data=data)
+            return self.async_create_entry(title=name, data=data)
 
         return self.async_show_form(
             step_id="options",
-            data_schema=_build_options_schema({}),
+            data_schema=_build_setup_schema({}),
             errors={},
         )
 

@@ -27,6 +27,7 @@
         "title": "CLP Integration Options",
         "description": "Configure electricity tariff & price settings, data sync preferences, and optional token updates (leave blank to keep current credentials unchanged).",
         "data": {
+          "name": "Integration/Device Name",
           "custom_fixed_rate": "Custom Fixed Price (HKD/kWh)",
           "custom_fuel_cents": "Custom Fuel Clause Adjustment (cents/kWh)",
           "custom_subsidy": "Bi-monthly Subsidy / Discount (HKD)",
@@ -74,6 +75,7 @@
         "title": "CLP Integration Options",
         "description": "Configure electricity tariff & price settings, data sync preferences, and optional token updates (leave blank to keep current credentials unchanged).",
         "data": {
+          "name": "Integration/Device Name",
           "custom_fixed_rate": "Custom Fixed Price (HKD/kWh)",
           "custom_fuel_cents": "Custom Fuel Clause Adjustment (cents/kWh)",
           "custom_subsidy": "Bi-monthly Subsidy / Discount (HKD)",
@@ -106,6 +108,7 @@
         "title": "CLP Integration Options",
         "description": "Configure electricity tariff & price settings, data sync preferences, and optional token updates (leave blank to keep current credentials unchanged).",
         "data": {
+          "name": "Integration/Device Name",
           "custom_fixed_rate": "Custom Fixed Price (HKD/kWh)",
           "custom_fuel_cents": "Custom Fuel Clause Adjustment (cents/kWh)",
           "custom_subsidy": "Bi-monthly Subsidy / Discount (HKD)",
