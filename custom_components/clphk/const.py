@@ -27,7 +27,7 @@ def _try_b64_decode(value: str) -> str | None:
 
 
 def _extract_allowed_b64_token(raw_value: str) -> str | None:
-    """Accept only: JSON object with data, JSON string, or plain base64 string."""
+    """Accept: JSON object with data/token, JSON string, plain UUID, Bearer UUID, or plain base64 string."""
     value = (raw_value or "").strip()
     if not value:
         return None
@@ -35,10 +35,12 @@ def _extract_allowed_b64_token(raw_value: str) -> str | None:
     try:
         parsed = json.loads(value)
         if isinstance(parsed, dict):
-            token = parsed.get("data")
-            if not isinstance(token, str):
+            for k in ("data", "access_token", "accessToken", "act", "refresh_token", "refreshToken", "rct"):
+                if parsed.get(k) and isinstance(parsed[k], str):
+                    candidate = parsed[k].strip()
+                    break
+            else:
                 return None
-            candidate = token.strip()
         elif isinstance(parsed, str):
             candidate = parsed.strip()
         else:
@@ -46,14 +48,24 @@ def _extract_allowed_b64_token(raw_value: str) -> str | None:
     except Exception:
         candidate = value
 
-    # Explicitly reject unsupported formats.
-    if candidate.startswith("Bearer "):
-        return None
+    candidate = candidate.strip("\"'").strip()
+    if candidate.lower().startswith("bearer "):
+        candidate = candidate[7:].strip()
 
+    # Plain UUID format directly
+    if UUID_RE.match(candidate):
+        return candidate
+
+    # Base64 encoded format
     decoded = _try_b64_decode(candidate)
-    if not decoded or not UUID_RE.match(decoded):
-        return None
-    return candidate
+    if decoded:
+        dec_clean = decoded.strip("\"'").strip()
+        if dec_clean.lower().startswith("bearer "):
+            dec_clean = dec_clean[7:].strip()
+        if UUID_RE.match(dec_clean):
+            return candidate
+
+    return None
 
 
 def parse_combined_tokens(raw_text: str) -> tuple[str | None, str | None]:

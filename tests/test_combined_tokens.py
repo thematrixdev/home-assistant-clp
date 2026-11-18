@@ -40,6 +40,36 @@ NmFmYzNlM2UtNWM1YS00NDM5LTgzMDQtYTkwZTBiNTMwMjBj
     assert rct == "NmFmYzNlM2UtNWM1YS00NDM5LTgzMDQtYTkwZTBiNTMwMjBj"
 
 
+def test_two_raw_uuid_lines():
+    raw = """
+6afd1370-8f26-4a3d-9455-6e0f0b7c0212
+6afd1370-f674-4cdc-b9c0-d3820b65020e
+"""
+    act, rct = parse_combined_tokens(raw)
+    assert act == "6afd1370-8f26-4a3d-9455-6e0f0b7c0212"
+    assert rct == "6afd1370-f674-4cdc-b9c0-d3820b65020e"
+
+
+def test_labeled_raw_uuids():
+    raw = """
+Access Token:
+6afd1370-8f26-4a3d-9455-6e0f0b7c0212
+
+Refresh Token:
+6afd1370-f674-4cdc-b9c0-d3820b65020e
+"""
+    act, rct = parse_combined_tokens(raw)
+    assert act == "6afd1370-8f26-4a3d-9455-6e0f0b7c0212"
+    assert rct == "6afd1370-f674-4cdc-b9c0-d3820b65020e"
+
+
+def test_single_json_dict_with_raw_uuids():
+    raw = '{"act": "6afd1370-8f26-4a3d-9455-6e0f0b7c0212", "rct": "6afd1370-f674-4cdc-b9c0-d3820b65020e"}'
+    act, rct = parse_combined_tokens(raw)
+    assert act == "6afd1370-8f26-4a3d-9455-6e0f0b7c0212"
+    assert rct == "6afd1370-f674-4cdc-b9c0-d3820b65020e"
+
+
 def test_empty_or_invalid_returns_none():
     assert parse_combined_tokens("") == (None, None)
     assert parse_combined_tokens("hello world") == (None, None)

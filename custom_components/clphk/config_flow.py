@@ -71,49 +71,86 @@ API_DEFAULT_HEADERS = {
 def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
+            # 1. Electricity Tariff & Price Configuration (User Customization)
+            vol.Optional(
+                CONF_CUSTOM_FIXED_RATE,
+                default=float(defaults.get(CONF_CUSTOM_FIXED_RATE, 0.0) or 0.0),
+            ): NumberSelector(NumberSelectorConfig(min=0, max=10, step=0.001, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_FUEL_CENTS,
+                default=float(defaults.get(CONF_CUSTOM_FUEL_CENTS, 0.0) or 0.0),
+            ): NumberSelector(NumberSelectorConfig(min=0, max=200, step=0.1, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_SUBSIDY,
+                default=float(defaults.get(CONF_CUSTOM_SUBSIDY, 0.0) or 0.0),
+            ): NumberSelector(NumberSelectorConfig(min=0, max=2000, step=1, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_CUSTOM_RATE_ENTITY,
+                default=defaults.get(CONF_CUSTOM_RATE_ENTITY, ""),
+            ): TextSelector(TextSelectorConfig()),
+
+            # 2. Main Sensor Data Collection Items
+            vol.Optional(
+                CONF_GET_HOURLY,
+                default=bool(defaults.get(CONF_GET_HOURLY, True)),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_GET_HOURLY_DAYS,
+                default=int(defaults.get(CONF_GET_HOURLY_DAYS, 1)),
+            ): NumberSelector(NumberSelectorConfig(min=1, max=2, mode=NumberSelectorMode.BOX)),
+            vol.Optional(
+                CONF_GET_DAILY,
+                default=bool(defaults.get(CONF_GET_DAILY, True)),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_GET_ESTIMATION,
+                default=bool(defaults.get(CONF_GET_ESTIMATION, True)),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_GET_BILL,
+                default=bool(defaults.get(CONF_GET_BILL, True)),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_GET_BIMONTHLY,
+                default=bool(defaults.get(CONF_GET_BIMONTHLY, False)),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_GET_ACCT,
+                default=bool(defaults.get(CONF_GET_ACCT, False)),
+            ): BooleanSelector(),
+
+            # 3. Basic Preferences
             vol.Required(
                 CONF_NAME,
                 default=defaults.get(CONF_NAME, "CLP"),
             ): TextSelector(TextSelectorConfig()),
             vol.Optional(
                 CONF_TIMEOUT,
-                default=defaults.get(CONF_TIMEOUT, 30),
+                default=int(defaults.get(CONF_TIMEOUT, 30)),
             ): NumberSelector(NumberSelectorConfig(min=1, max=120, mode=NumberSelectorMode.BOX)),
             vol.Optional(
                 CONF_TYPE,
                 default=defaults.get(CONF_TYPE, ""),
             ): TextSelector(TextSelectorConfig()),
+
+            # 4. Optional Token Update (leave blank to keep current credentials unchanged)
             vol.Optional(
-                CONF_GET_ACCT,
-                default=defaults.get(CONF_GET_ACCT, False),
-            ): BooleanSelector(),
+                CONF_COMBINED_TOKENS,
+                default="",
+            ): TextSelector(TextSelectorConfig(multiline=True)),
             vol.Optional(
-                CONF_GET_BILL,
-                default=defaults.get(CONF_GET_BILL, False),
-            ): BooleanSelector(),
+                CONF_ACCESS_TOKEN,
+                default="",
+            ): TextSelector(TextSelectorConfig()),
             vol.Optional(
-                CONF_GET_ESTIMATION,
-                default=defaults.get(CONF_GET_ESTIMATION, False),
-            ): BooleanSelector(),
-            vol.Optional(
-                CONF_GET_BIMONTHLY,
-                default=defaults.get(CONF_GET_BIMONTHLY, False),
-            ): BooleanSelector(),
-            vol.Optional(
-                CONF_GET_DAILY,
-                default=defaults.get(CONF_GET_DAILY, False),
-            ): BooleanSelector(),
-            vol.Optional(
-                CONF_GET_HOURLY,
-                default=defaults.get(CONF_GET_HOURLY, False),
-            ): BooleanSelector(),
-            vol.Optional(
-                CONF_GET_HOURLY_DAYS,
-                default=defaults.get(CONF_GET_HOURLY_DAYS, 1),
-            ): NumberSelector(NumberSelectorConfig(min=1, max=2, mode=NumberSelectorMode.BOX)),
+                CONF_REFRESH_TOKEN,
+                default="",
+            ): TextSelector(TextSelectorConfig()),
+
+            # 5. Renewable Energy (Feed-in Tariff FiT)
             vol.Optional(
                 CONF_RES_ENABLE,
-                default=defaults.get(CONF_RES_ENABLE, False),
+                default=bool(defaults.get(CONF_RES_ENABLE, False)),
             ): BooleanSelector(),
             vol.Optional(
                 CONF_RES_NAME,
@@ -125,36 +162,20 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): TextSelector(TextSelectorConfig()),
             vol.Optional(
                 CONF_RES_GET_BILL,
-                default=defaults.get(CONF_RES_GET_BILL, False),
+                default=bool(defaults.get(CONF_RES_GET_BILL, False)),
             ): BooleanSelector(),
             vol.Optional(
                 CONF_RES_GET_DAILY,
-                default=defaults.get(CONF_RES_GET_DAILY, False),
+                default=bool(defaults.get(CONF_RES_GET_DAILY, False)),
             ): BooleanSelector(),
             vol.Optional(
                 CONF_RES_GET_HOURLY,
-                default=defaults.get(CONF_RES_GET_HOURLY, False),
+                default=bool(defaults.get(CONF_RES_GET_HOURLY, False)),
             ): BooleanSelector(),
             vol.Optional(
                 CONF_RES_GET_HOURLY_DAYS,
-                default=defaults.get(CONF_RES_GET_HOURLY_DAYS, 1),
+                default=int(defaults.get(CONF_RES_GET_HOURLY_DAYS, 1)),
             ): NumberSelector(NumberSelectorConfig(min=1, max=2, mode=NumberSelectorMode.BOX)),
-            vol.Optional(
-                CONF_CUSTOM_FUEL_CENTS,
-                default=float(defaults.get(CONF_CUSTOM_FUEL_CENTS, 0.0) or 0.0),
-            ): NumberSelector(NumberSelectorConfig(min=0, max=200, step=0.1, mode=NumberSelectorMode.BOX)),
-            vol.Optional(
-                CONF_CUSTOM_FIXED_RATE,
-                default=float(defaults.get(CONF_CUSTOM_FIXED_RATE, 0.0) or 0.0),
-            ): NumberSelector(NumberSelectorConfig(min=0, max=10, step=0.001, mode=NumberSelectorMode.BOX)),
-            vol.Optional(
-                CONF_CUSTOM_SUBSIDY,
-                default=float(defaults.get(CONF_CUSTOM_SUBSIDY, 0.0) or 0.0),
-            ): NumberSelector(NumberSelectorConfig(min=0, max=2000, step=1, mode=NumberSelectorMode.BOX)),
-            vol.Optional(
-                CONF_CUSTOM_RATE_ENTITY,
-                default=defaults.get(CONF_CUSTOM_RATE_ENTITY, ""),
-            ): TextSelector(TextSelectorConfig()),
         }
     )
 
@@ -184,16 +205,26 @@ def _build_tokens_schema(defaults: dict[str, Any]) -> vol.Schema:
 
 
 
-def _normalize_token(raw_value: str) -> tuple[str | None, str]:
-    """Return decoded UUID token from accepted input format."""
-    b64_token = _extract_allowed_b64_token(raw_value)
-    if not b64_token:
+def _normalize_token(raw_value: str | None) -> tuple[str | None, str]:
+    """Return decoded UUID token from accepted input format (plain UUID, Bearer, JSON, or base64)."""
+    token_str = _extract_allowed_b64_token(raw_value)
+    if not token_str:
         return None, "token_format_invalid"
 
-    decoded = _try_b64_decode(b64_token)
-    if not decoded or not UUID_RE.match(decoded):
-        return None, "token_format_invalid"
-    return decoded, ""
+    # If it is already a UUID string
+    if UUID_RE.match(token_str):
+        return token_str.lower(), ""
+
+    # If it is base64-encoded
+    decoded = _try_b64_decode(token_str)
+    if decoded:
+        dec_clean = decoded.strip("\"'").strip()
+        if dec_clean.lower().startswith("bearer "):
+            dec_clean = dec_clean[7:].strip()
+        if UUID_RE.match(dec_clean):
+            return dec_clean.lower(), ""
+
+    return None, "token_format_invalid"
 
 
 def _classify_access_token_error(status: int, body: str) -> str:
@@ -250,73 +281,73 @@ async def _validate_access_token(token: str, timeout: int = 30) -> tuple[str | N
 
 
 class CLPHKOptionsFlowHandler(config_entries.OptionsFlow):
-    """Options flow: init (guide) -> tokens -> options."""
-
-    def __init__(self) -> None:
-        self._pending: dict[str, Any] = {}
+    """Options flow: direct options form with electricity tariff configuration & optional token update."""
 
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        defaults = {**self.config_entry.data, **self.config_entry.options}
+
         if user_input is not None:
-            return await self.async_step_tokens()
+            combined = (user_input.get(CONF_COMBINED_TOKENS) or "").strip()
+            act_input = (user_input.get(CONF_ACCESS_TOKEN) or "").strip()
+            rct_input = (user_input.get(CONF_REFRESH_TOKEN) or "").strip()
+
+            new_access_token = None
+            new_refresh_token = None
+
+            if combined:
+                act_parsed, rct_parsed = parse_combined_tokens(combined)
+                if not act_parsed or not rct_parsed:
+                    errors["base"] = "token_format_invalid"
+                else:
+                    act_input, rct_input = act_parsed, rct_parsed
+
+            if not errors and (act_input or rct_input):
+                if not act_input or not rct_input:
+                    errors["base"] = "token_format_invalid"
+                else:
+                    timeout = int(user_input.get(CONF_TIMEOUT, defaults.get(CONF_TIMEOUT, 30)))
+                    norm_act, error_key = await _validate_access_token(
+                        token=act_input,
+                        timeout=timeout,
+                    )
+                    if not norm_act:
+                        errors["base"] = error_key
+                    else:
+                        norm_rct, refresh_error = _normalize_token(rct_input)
+                        if not norm_rct:
+                            errors["base"] = refresh_error
+                        else:
+                            new_access_token = norm_act
+                            new_refresh_token = norm_rct
+
+            if not errors:
+                clean_options = {
+                    k: v
+                    for k, v in user_input.items()
+                    if k not in (CONF_COMBINED_TOKENS, CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN)
+                }
+                new_data = dict(self.config_entry.data)
+                if new_access_token and new_refresh_token:
+                    new_data[CONF_ACCESS_TOKEN] = new_access_token
+                    new_data[CONF_REFRESH_TOKEN] = new_refresh_token
+
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
+                    data=new_data,
+                    options=clean_options,
+                )
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                return self.async_create_entry(title=self.config_entry.title, data=clean_options)
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({}),
-        )
-
-    async def async_step_tokens(self, user_input=None) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            combined = (user_input.get(CONF_COMBINED_TOKENS) or "").strip()
-            if combined:
-                access_token_input, refresh_token_input = parse_combined_tokens(combined)
-            else:
-                access_token_input = user_input.get(CONF_ACCESS_TOKEN)
-                refresh_token_input = user_input.get(CONF_REFRESH_TOKEN)
-            merged = {**self.config_entry.data, **self.config_entry.options}
-            timeout = int(merged.get(CONF_TIMEOUT, 30))
-            normalized_access_token, error_key = await _validate_access_token(
-                token=access_token_input,
-                timeout=timeout,
-            )
-            if not normalized_access_token:
-                errors["base"] = error_key
-            else:
-                normalized_refresh_token, refresh_error = _normalize_token(refresh_token_input)
-                if not normalized_refresh_token:
-                    errors["base"] = refresh_error
-                    normalized_access_token = None
-                else:
-                    self._pending[CONF_ACCESS_TOKEN] = normalized_access_token
-                    self._pending[CONF_REFRESH_TOKEN] = normalized_refresh_token
-                    return await self.async_step_options()
-
-        defaults = {**self.config_entry.data, **self.config_entry.options}
-        return self.async_show_form(
-            step_id="tokens",
-            data_schema=_build_tokens_schema(defaults),
+            data_schema=_build_options_schema(defaults),
             errors=errors,
         )
 
     async def async_step_options(self, user_input=None) -> ConfigFlowResult:
-        if user_input is not None:
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                data={
-                    **self.config_entry.data,
-                    CONF_ACCESS_TOKEN: self._pending[CONF_ACCESS_TOKEN],
-                    CONF_REFRESH_TOKEN: self._pending[CONF_REFRESH_TOKEN],
-                },
-                options=user_input,
-            )
-            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-            return self.async_create_entry(title=self.config_entry.title, data=user_input)
-
-        return self.async_show_form(
-            step_id="options",
-            data_schema=_build_options_schema({**self.config_entry.data, **self.config_entry.options}),
-            errors={},
-        )
+        return await self.async_step_init(user_input)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain="clphk"):

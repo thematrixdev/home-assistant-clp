@@ -66,8 +66,34 @@
   "options": {
     "step": {
       "init": {
-        "title": "CLP HK Setup Guide",
-        "description": "### 📋 How to Obtain / Update CLP Token Credentials:\n\n1. **Log in**: Open Chrome or Edge (Incognito window recommended) and sign in to [CLP Online](https://www.clp.com.hk).\n2. **Open Console**: Press **F12** and switch to the **Console** tab.\n3. **Quick Copy**: Run the following code and copy the entire output:\n```javascript\nconsole.log(\"Access Token:\\n\" + localStorage.getItem(\"act\") + \"\\n\\nRefresh Token:\\n\" + localStorage.getItem(\"rct\"));\n```\n4. **Notice**: Close the browser tab directly without signing out.\n\nClick **\"Next\"** below to enter tokens and configure sensor options."
+        "title": "CLP Integration Options",
+        "description": "Configure electricity tariff & price settings, data collection preferences, and optional token updates (leave token fields blank to keep current credentials unchanged).",
+        "data": {
+          "custom_fixed_rate": "Custom Fixed Price (HKD/kWh, 0 for tiered pricing)",
+          "custom_fuel_cents": "Custom Fuel Clause Adjustment (cents/kWh, 0 for auto-sync)",
+          "custom_subsidy": "Bi-monthly Subsidy / Discount (HKD)",
+          "custom_rate_entity": "Custom Tariff Rate Entity ID (e.g. input_number.clp_rate)",
+          "name": "Sensor Name",
+          "timeout": "API Timeout (seconds)",
+          "type": "Primary State Data Type (e.g. HOURLY, DAILY, BIMONTHLY)",
+          "get_account": "Fetch Account Summary",
+          "get_bill": "Fetch Bills",
+          "get_estimation": "Fetch Usage Estimation",
+          "get_bimonthly": "Fetch Bi-monthly Usage",
+          "get_daily": "Fetch Daily Usage",
+          "get_hourly": "Fetch Hourly Usage (required for Energy Dashboard)",
+          "get_hourly_days": "Days of Hourly Data to Fetch (1 or 2)",
+          "combined_tokens": "Update Tokens: Paste All (optional, leave blank to keep unchanged)",
+          "access_token": "Update Access Token (optional, leave blank to keep unchanged)",
+          "refresh_token": "Update Refresh Token (optional, leave blank to keep unchanged)",
+          "renewable_energy_sensor_enable": "Enable Renewable Energy Sensor (Feed-in Tariff)",
+          "renewable_energy_sensor_name": "Renewable Sensor Name",
+          "renewable_energy_sensor_type": "Renewable Primary State Data Type",
+          "renewable_energy_sensor_get_bill": "Fetch Renewable Energy Bills",
+          "renewable_energy_sensor_get_daily": "Fetch Renewable Energy Daily Generation",
+          "renewable_energy_sensor_get_hourly": "Fetch Renewable Energy Hourly Generation",
+          "renewable_energy_sensor_get_hourly_days": "Days of Renewable Hourly Data to Fetch (1 or 2)"
+        }
       },
       "tokens": {
         "title": "Token Authentication",
@@ -79,9 +105,13 @@
         }
       },
       "options": {
-        "title": "Sensor Options",
-        "description": "Configure data collection preferences and renewable energy options.",
+        "title": "CLP Integration Options",
+        "description": "Configure electricity tariff & price settings and data collection preferences.",
         "data": {
+          "custom_fixed_rate": "Custom Fixed Price (HKD/kWh, 0 for tiered pricing)",
+          "custom_fuel_cents": "Custom Fuel Clause Adjustment (cents/kWh, 0 for auto-sync)",
+          "custom_subsidy": "Bi-monthly Subsidy / Discount (HKD)",
+          "custom_rate_entity": "Custom Tariff Rate Entity ID (e.g. input_number.clp_rate)",
           "name": "Sensor Name",
           "timeout": "API Timeout (seconds)",
           "type": "Primary State Data Type (e.g. HOURLY, DAILY, BIMONTHLY)",
@@ -92,10 +122,9 @@
           "get_daily": "Fetch Daily Usage",
           "get_hourly": "Fetch Hourly Usage (required for Energy Dashboard)",
           "get_hourly_days": "Days of Hourly Data to Fetch (1 or 2)",
-          "custom_fuel_cents": "Custom Fuel Clause Adjustment (cents/kWh, 0 for auto-sync)",
-          "custom_fixed_rate": "Custom Fixed Price (HKD/kWh, 0 for tiered pricing)",
-          "custom_subsidy": "Bi-monthly Subsidy / Discount (HKD)",
-          "custom_rate_entity": "Custom Tariff Rate Entity ID (e.g. input_number.clp_rate)",
+          "combined_tokens": "Update Tokens: Paste All (optional, leave blank to keep unchanged)",
+          "access_token": "Update Access Token (optional, leave blank to keep unchanged)",
+          "refresh_token": "Update Refresh Token (optional, leave blank to keep unchanged)",
           "renewable_energy_sensor_enable": "Enable Renewable Energy Sensor (Feed-in Tariff)",
           "renewable_energy_sensor_name": "Renewable Sensor Name",
           "renewable_energy_sensor_type": "Renewable Primary State Data Type",

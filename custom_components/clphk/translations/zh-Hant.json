@@ -66,22 +66,13 @@
   "options": {
     "step": {
       "init": {
-        "title": "中華電力 (CLP) 設定指引",
-        "description": "### 📋 如何獲取/更新中電 Token 憑證：\n\n1. **登入官網**：使用 Chrome 或 Edge 瀏覽器（建議無痕視窗）登入 [中電網上帳戶 (CLP)](https://www.clp.com.hk)。\n2. **打開主控台**：按 **F12**，切換至 **Console（主控台）**。\n3. **一鍵獲取 Token**：執行以下代碼並複製全部輸出：\n```javascript\nconsole.log(\"Access Token:\\n\" + localStorage.getItem(\"act\") + \"\\n\\nRefresh Token:\\n\" + localStorage.getItem(\"rct\"));\n```\n4. **注意事項**：獲取後請**直接關閉網頁**，**切勿點擊登出**。\n\n點擊下方**「下一步」**輸入 Token 並配置感測器選項。"
-      },
-      "tokens": {
-        "title": "中華電力 (CLP) 身分驗證",
-        "description": "您可以直接將複製的整段內容（包含 Access Token 與 Refresh Token）貼上下方大文字框。下方的個別欄位可留空。",
+        "title": "中華電力 (CLP) 整合設定",
+        "description": "自訂電價與費率設定、感測器資料擷取項目，以及可選的 Token 憑證更新（若無需更新 Token 請留空對應欄位）。",
         "data": {
-          "combined_tokens": "一鍵貼上完整 Token 內容",
-          "access_token": "Access Token（若已在上方貼上則可留空）",
-          "refresh_token": "Refresh Token（若已在上方貼上則可留空）"
-        }
-      },
-      "options": {
-        "title": "感測器選項",
-        "description": "配置中電資料擷取項目與可再生能源設定。",
-        "data": {
+          "custom_fixed_rate": "自訂固定電價（港幣/度，填 0 為官方階梯電價）",
+          "custom_fuel_cents": "自訂燃料調整費（分/度，填 0 為每月自動同步官方）",
+          "custom_subsidy": "每期電費補貼/資助扣減（港幣）",
+          "custom_rate_entity": "動態電價實體 ID（如 input_number.clp_rate）",
           "name": "感測器名稱",
           "timeout": "API 請求超時（秒）",
           "type": "主要狀態顯示類型（如 HOURLY / DAILY / BIMONTHLY）",
@@ -92,10 +83,48 @@
           "get_daily": "獲取每日用電資料",
           "get_hourly": "獲取每小時用電資料（能源儀表板必備）",
           "get_hourly_days": "每小時資料抓取天數（1 或 2 天）",
-          "custom_fuel_cents": "自訂燃料調整費（分/度，填 0 為每月自動同步官方）",
+          "combined_tokens": "更新 Token：一鍵貼上完整內容（可選，留空保持不變）",
+          "access_token": "更新 Access Token（可選，留空保持不變）",
+          "refresh_token": "更新 Refresh Token（可選，留空保持不變）",
+          "renewable_energy_sensor_enable": "啟用可再生能源感測器（上網電價 FiT）",
+          "renewable_energy_sensor_name": "可再生能源感測器名稱",
+          "renewable_energy_sensor_type": "可再生能源主要狀態顯示類型",
+          "renewable_energy_sensor_get_bill": "獲取可再生能源帳單",
+          "renewable_energy_sensor_get_daily": "獲取可再生能源每日發電量",
+          "renewable_energy_sensor_get_hourly": "獲取可再生能源每小時發電量",
+          "renewable_energy_sensor_get_hourly_days": "可再生能源每小時資料抓取天數（1 或 2 天）"
+        }
+      },
+      "tokens": {
+        "title": "中華電力 (CLP) 身分驗證",
+        "description": "您可以直接將複製的整段內容（包含 Access Token 與 Refresh Token）貼上下方大文字框。下方的個別欄位可留空。",
+        "data": {
+          "combined_tokens": "一鍵貼上完整 Token 内容",
+          "access_token": "Access Token（若已在上方貼上則可留空）",
+          "refresh_token": "Refresh Token（若已在上方貼上則可留空）"
+        }
+      },
+      "options": {
+        "title": "中華電力 (CLP) 選項設定",
+        "description": "配置電價與費率設定、感測器資料擷取項目。",
+        "data": {
           "custom_fixed_rate": "自訂固定電價（港幣/度，填 0 為官方階梯電價）",
+          "custom_fuel_cents": "自訂燃料調整費（分/度，填 0 為每月自動同步官方）",
           "custom_subsidy": "每期電費補貼/資助扣減（港幣）",
           "custom_rate_entity": "動態電價實體 ID（如 input_number.clp_rate）",
+          "name": "感測器名稱",
+          "timeout": "API 請求超時（秒）",
+          "type": "主要狀態顯示類型（如 HOURLY / DAILY / BIMONTHLY）",
+          "get_account": "獲取帳戶摘要資訊",
+          "get_bill": "獲取帳單記錄",
+          "get_estimation": "獲取用電預估",
+          "get_bimonthly": "獲取雙月用電資料",
+          "get_daily": "獲取每日用電資料",
+          "get_hourly": "獲取每小時用電資料（能源儀表板必備）",
+          "get_hourly_days": "每小時資料抓取天數（1 或 2 天）",
+          "combined_tokens": "更新 Token：一鍵貼上完整內容（可選，留空保持不變）",
+          "access_token": "更新 Access Token（可選，留空保持不變）",
+          "refresh_token": "更新 Refresh Token（可選，留空保持不變）",
           "renewable_energy_sensor_enable": "啟用可再生能源感測器（上網電價 FiT）",
           "renewable_energy_sensor_name": "可再生能源感測器名稱",
           "renewable_energy_sensor_type": "可再生能源主要狀態顯示類型",

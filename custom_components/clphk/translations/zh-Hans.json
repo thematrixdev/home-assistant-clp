@@ -66,8 +66,34 @@
   "options": {
     "step": {
       "init": {
-        "title": "中华电力 (CLP) 配置指引",
-        "description": "### 📋 如何获取/更新中电 Token 凭证：\n\n1. **登录官网**：使用 Chrome 或 Edge 浏览器（建议无痕模式）登录 [中电官网 (CLP)](https://www.clp.com.hk)。\n2. **打开控制台**：按 **F12**，切换至 **Console（控制台）**。\n3. **一键获取 Token**：运行以下代码并复制全部输出：\n```javascript\nconsole.log(\"Access Token:\\n\" + localStorage.getItem(\"act\") + \"\\n\\nRefresh Token:\\n\" + localStorage.getItem(\"rct\"));\n```\n4. **注意事项**：获取后请**直接关闭网页**，**切勿点击登出**。\n\n点击下方**「下一步」**输入 Token 并配置传感器选项。"
+        "title": "中华电力 (CLP) 集成配置",
+        "description": "自定义电价与费率设置、传感器数据采集项目，以及可选凭证更新（若无需更新 Token 请留空对应字段）。",
+        "data": {
+          "custom_fixed_rate": "自定义固定电价（港币/度，填 0 为官方阶梯电价）",
+          "custom_fuel_cents": "自定义燃料调整费（分/度，填 0 为每月自动同步官方）",
+          "custom_subsidy": "每期电费补贴/资助扣减（港币）",
+          "custom_rate_entity": "动态电价实体 ID（如 input_number.clp_rate）",
+          "name": "传感器名称",
+          "timeout": "API 请求超时（秒）",
+          "type": "主要状态显示类型（如 HOURLY / DAILY / BIMONTHLY）",
+          "get_account": "获取账户摘要信息",
+          "get_bill": "获取账单记录",
+          "get_estimation": "获取用电预估",
+          "get_bimonthly": "获取双月用电数据",
+          "get_daily": "获取每日用电数据",
+          "get_hourly": "获取每小时用电数据（能源仪表盘必备）",
+          "get_hourly_days": "每小时数据抓取天数（1 或 2 天）",
+          "combined_tokens": "更新 Token：一键粘贴完整内容（可选，留空保持不变）",
+          "access_token": "更新 Access Token（可选，留空保持不变）",
+          "refresh_token": "更新 Refresh Token（可选，留空保持不变）",
+          "renewable_energy_sensor_enable": "启用可再生能源传感器（上网电价 FiT）",
+          "renewable_energy_sensor_name": "可再生能源传感器名称",
+          "renewable_energy_sensor_type": "可再生能源主要状态显示类型",
+          "renewable_energy_sensor_get_bill": "获取可再生能源账单",
+          "renewable_energy_sensor_get_daily": "获取可再生能源每日发电量",
+          "renewable_energy_sensor_get_hourly": "获取可再生能源每小时发电量",
+          "renewable_energy_sensor_get_hourly_days": "可再生能源每小时数据抓取天数（1 或 2 天）"
+        }
       },
       "tokens": {
         "title": "中华电力 (CLP) 身份验证",
@@ -79,9 +105,13 @@
         }
       },
       "options": {
-        "title": "传感器选项",
-        "description": "配置中电数据采集项目与可再生能源设置。",
+        "title": "中华电力 (CLP) 选项配置",
+        "description": "配置电价与费率设置、传感器数据采集项目。",
         "data": {
+          "custom_fixed_rate": "自定义固定电价（港币/度，填 0 为官方阶梯电价）",
+          "custom_fuel_cents": "自定义燃料调整费（分/度，填 0 为每月自动同步官方）",
+          "custom_subsidy": "每期电费补贴/资助扣减（港币）",
+          "custom_rate_entity": "动态电价实体 ID（如 input_number.clp_rate）",
           "name": "传感器名称",
           "timeout": "API 请求超时（秒）",
           "type": "主要状态显示类型（如 HOURLY / DAILY / BIMONTHLY）",
@@ -92,10 +122,9 @@
           "get_daily": "获取每日用电数据",
           "get_hourly": "获取每小时用电数据（能源仪表盘必备）",
           "get_hourly_days": "每小时数据抓取天数（1 或 2 天）",
-          "custom_fuel_cents": "自定义燃料调整费（分/度，填 0 为每月自动同步官方）",
-          "custom_fixed_rate": "自定义固定电价（港币/度，填 0 为官方阶梯电价）",
-          "custom_subsidy": "每期电费补贴/资助扣减（港币）",
-          "custom_rate_entity": "动态电价实体 ID（如 input_number.clp_rate）",
+          "combined_tokens": "更新 Token：一键粘贴完整内容（可选，留空保持不变）",
+          "access_token": "更新 Access Token（可选，留空保持不变）",
+          "refresh_token": "更新 Refresh Token（可选，留空保持不变）",
           "renewable_energy_sensor_enable": "启用可再生能源传感器（上网电价 FiT）",
           "renewable_energy_sensor_name": "可再生能源传感器名称",
           "renewable_energy_sensor_type": "可再生能源主要状态显示类型",
