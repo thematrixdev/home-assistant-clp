@@ -498,6 +498,7 @@ class CLPSensor(SensorEntity):
             name=self._name,
             manufacturer="CLP Power Hong Kong",
             model="Electricity Account",
+            configuration_url="https://www.clp.com.hk",
         )
 
     def register_sub_sensor(self, sensor: CLPSubSensor) -> None:

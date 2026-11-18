@@ -1,10 +1,30 @@
 import asyncio
+import logging
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import (
     CONF_DOMAIN,
 )
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def _async_cleanup_orphaned_devices(hass: HomeAssistant, entry_id: str) -> None:
+    """Remove any devices belonging to this config entry that have no entities."""
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+    devices = dr.async_entries_for_config_entry(dev_reg, entry_id)
+    for dev in devices:
+        entities = er.async_entries_for_device(ent_reg, dev.id)
+        if not entities:
+            _LOGGER.info(
+                "Removing orphaned CLP device without entities: %s (id: %s)",
+                dev.name,
+                dev.id,
+            )
+            dev_reg.async_remove_device(dev.id)
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -33,6 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry):
             "token_lock": asyncio.Lock(),
         }
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    await _async_cleanup_orphaned_devices(hass, entry.entry_id)
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry):
