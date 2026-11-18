@@ -108,5 +108,12 @@ class TestStatisticsImport(unittest.TestCase):
         self.assertEqual(res6["total"], 250.00)
         self.assertEqual(res6["effective_rate"], 1.25)
 
+        # Test Case 7: Low consumption (< 30 kWh) avoids minimum bill rate spike
+        res7 = calculate_residential_bill(5.0, 60, 47.4)
+        self.assertEqual(res7["total"], 40.0)
+        # Should not spike to 40 / 5 = 8.0, but stay close to standard per-kWh rate (~1.247)
+        self.assertLess(res7["effective_rate"], 2.0)
+        self.assertGreater(res7["effective_rate"], 1.0)
+
 if __name__ == "__main__":
     unittest.main()

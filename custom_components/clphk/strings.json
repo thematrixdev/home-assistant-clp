@@ -37,6 +37,7 @@
           "get_daily": "Sync Daily Official Consumption",
           "get_estimation": "Sync Current Period Usage & Cost Estimation",
           "get_bill": "Sync Historical Bill Records",
+          "renewable_energy_sensor_enable": "Enable Feed-in Tariff (FiT) Renewable Energy",
           "combined_tokens": "Update Tokens: Paste All (optional)",
           "access_token": "Update Access Token (optional)",
           "refresh_token": "Update Refresh Token (optional)"
@@ -51,6 +52,7 @@
           "get_daily": "Retrieves official daily energy totals matching CLP billing day by day.",
           "get_estimation": "Retrieves current billing period consumption, projected units, and projected total bill amount.",
           "get_bill": "Retrieves past 14 months of issued bills and the latest bill total.",
+          "renewable_energy_sensor_enable": "Enable if your account participates in CLP's Feed-in Tariff (FiT) scheme (solar PV / wind) to sync renewable energy generation data for the HA Energy Dashboard.",
           "combined_tokens": "Leave empty to keep existing credentials unchanged. If tokens expired, paste full console output here.",
           "access_token": "Leave empty if pasted above. Accepts plain UUID, Bearer, or Base64.",
           "refresh_token": "Leave empty if pasted above. Used to automatically refresh access token upon expiry."
@@ -85,6 +87,7 @@
           "get_daily": "Sync Daily Official Consumption",
           "get_estimation": "Sync Current Period Usage & Cost Estimation",
           "get_bill": "Sync Historical Bill Records",
+          "renewable_energy_sensor_enable": "Enable Feed-in Tariff (FiT) Renewable Energy",
           "combined_tokens": "Update Tokens: Paste All (optional)",
           "access_token": "Update Access Token (optional)",
           "refresh_token": "Update Refresh Token (optional)"
@@ -99,6 +102,7 @@
           "get_daily": "Retrieves official daily energy totals matching CLP billing day by day.",
           "get_estimation": "Retrieves current billing period consumption, projected units, and projected total bill amount.",
           "get_bill": "Retrieves past 14 months of issued bills and the latest bill total.",
+          "renewable_energy_sensor_enable": "Enable if your account participates in CLP's Feed-in Tariff (FiT) scheme (solar PV / wind) to sync renewable energy generation data for the HA Energy Dashboard.",
           "combined_tokens": "Leave empty to keep existing credentials unchanged. If tokens expired, paste full console output here.",
           "access_token": "Leave empty if pasted above. Accepts plain UUID, Bearer, or Base64.",
           "refresh_token": "Leave empty if pasted above. Used to automatically refresh access token upon expiry."
@@ -118,6 +122,7 @@
           "get_daily": "Sync Daily Official Consumption",
           "get_estimation": "Sync Current Period Usage & Cost Estimation",
           "get_bill": "Sync Historical Bill Records",
+          "renewable_energy_sensor_enable": "Enable Feed-in Tariff (FiT) Renewable Energy",
           "combined_tokens": "Update Tokens: Paste All (optional)",
           "access_token": "Update Access Token (optional)",
           "refresh_token": "Update Refresh Token (optional)"
@@ -132,6 +137,7 @@
           "get_daily": "Retrieves official daily energy totals matching CLP billing day by day.",
           "get_estimation": "Retrieves current billing period consumption, projected units, and projected total bill amount.",
           "get_bill": "Retrieves past 14 months of issued bills and the latest bill total.",
+          "renewable_energy_sensor_enable": "Enable if your account participates in CLP's Feed-in Tariff (FiT) scheme (solar PV / wind) to sync renewable energy generation data for the HA Energy Dashboard.",
           "combined_tokens": "Leave empty to keep existing credentials unchanged. If tokens expired, paste full console output here.",
           "access_token": "Leave empty if pasted above. Accepts plain UUID, Bearer, or Base64.",
           "refresh_token": "Leave empty if pasted above. Used to automatically refresh access token upon expiry."

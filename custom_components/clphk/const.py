@@ -236,6 +236,13 @@ def calculate_residential_bill(
     net_cents = basic_tariff_cents + fuel_cents_total - rebate_cents - special_rebate_cents_total
     gross_dollars = net_cents / 100.0
     net_dollars = round(max(40.0, gross_dollars - subsidy), 2)
+    # When consumption is very low (< 30 kWh early in billing cycle), avoid inflating
+    # the per-kWh effective rate with the HK$40 minimum bill floor.
+    if kwh >= 30.0:
+        effective_rate = round(net_dollars / kwh, 4)
+    else:
+        effective_rate = round(max(0.0, gross_dollars) / max(1.0, kwh), 4) if gross_dollars > 0 else round((94.5 + fuel_cents - 17.2) / 100.0, 4)
+
     return {
         "basic_tariff": round(basic_tariff_cents / 100.0, 2),
         "fuel_charge": round(fuel_cents_total / 100.0, 2),
@@ -243,7 +250,7 @@ def calculate_residential_bill(
         "special_rebate": round(special_rebate_cents_total / 100.0, 2),
         "subsidy": round(subsidy, 2),
         "total": net_dollars,
-        "effective_rate": round(net_dollars / max(1.0, kwh), 4),
+        "effective_rate": effective_rate,
     }
 
 CONF_GET_ACCT = 'get_account'

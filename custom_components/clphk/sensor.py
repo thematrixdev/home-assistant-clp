@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import datetime
+import json as jsonlib
+import logging
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from dateutil import relativedelta
+from curl_cffi.requests import AsyncSession
+
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 try:
@@ -10,21 +20,7 @@ from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     get_last_statistics,
 )
-
-
-import asyncio
-import collections
-import datetime
-import json as jsonlib
-import logging
-
-import homeassistant.helpers.config_validation as cv
-import pytz
-import voluptuous as vol
-from curl_cffi.requests import AsyncSession
-from dateutil import relativedelta
 from homeassistant.components.sensor import (
-    PLATFORM_SCHEMA,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -50,7 +46,6 @@ from .const import (
     parse_datetime,
     parse_refresh_tokens,
     safe_float,
-
     CONF_GET_ACCT,
     CONF_GET_BILL,
     CONF_GET_ESTIMATION,
@@ -58,62 +53,26 @@ from .const import (
     CONF_GET_DAILY,
     CONF_GET_HOURLY,
     CONF_GET_HOURLY_DAYS,
-
+    CONF_RES_ENABLE,
     CONF_CUSTOM_FUEL_CENTS,
     CONF_CUSTOM_FIXED_RATE,
     CONF_CUSTOM_SUBSIDY,
     CONF_CUSTOM_RATE_ENTITY,
-
-    CONF_RES_ENABLE,
-    CONF_RES_NAME,
-    CONF_RES_TYPE,
-    CONF_RES_GET_BILL,
-    CONF_RES_GET_DAILY,
-    CONF_RES_GET_HOURLY,
-    CONF_RES_GET_HOURLY_DAYS,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Optional(CONF_TIMEOUT, default=30): cv.positive_int,
-    vol.Optional(CONF_NAME, default='CLP'): cv.string,
-    vol.Optional(CONF_TYPE, default=''): cv.string,
-    vol.Optional(CONF_GET_ACCT, default=False): cv.boolean,
-    vol.Optional(CONF_GET_BILL, default=False): cv.boolean,
-    vol.Optional(CONF_GET_ESTIMATION, default=False): cv.boolean,
-    vol.Optional(CONF_GET_BIMONTHLY, default=False): cv.boolean,
-    vol.Optional(CONF_GET_DAILY, default=False): cv.boolean,
-    vol.Optional(CONF_GET_HOURLY, default=False): cv.boolean,
-    vol.Optional(CONF_GET_HOURLY_DAYS, default=1): vol.Clamp(min=1, max=2),
-
-    vol.Optional(CONF_CUSTOM_FUEL_CENTS, default=0.0): cv.positive_float,
-    vol.Optional(CONF_CUSTOM_FIXED_RATE, default=0.0): cv.positive_float,
-    vol.Optional(CONF_CUSTOM_SUBSIDY, default=0.0): cv.positive_float,
-    vol.Optional(CONF_CUSTOM_RATE_ENTITY, default=''): cv.string,
-
-    vol.Optional(CONF_RES_ENABLE, default=False): cv.boolean,
-    vol.Optional(CONF_RES_NAME, default='CLP Renewable Energy'): cv.string,
-    vol.Optional(CONF_RES_TYPE, default=''): cv.string,
-    vol.Optional(CONF_RES_GET_BILL, default=False): cv.boolean,
-    vol.Optional(CONF_RES_GET_DAILY, default=False): cv.boolean,
-    vol.Optional(CONF_RES_GET_HOURLY, default=False): cv.boolean,
-    vol.Optional(CONF_RES_GET_HOURLY_DAYS, default=1): vol.Clamp(min=1, max=2),
-})
-
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=300)
 DAILY_TASK_INTERVAL = datetime.timedelta(hours=12)
-HOURLY_TASK_INTERVAL = datetime.timedelta(minutes=30)
+HOURLY_TASK_INTERVAL = datetime.timedelta(minutes=60)
 
 DOMAIN = CONF_DOMAIN
+
 
 class FatalAuthError(Exception):
     """Non-recoverable auth error that requires reconfiguration."""
 
 
-# Browser fingerprint headers (User-Agent, sec-ch-ua*, Accept-Encoding) are set by
-# curl_cffi's impersonate="chrome"; only app-level headers are declared here so they
-# stay consistent with the impersonated browser and don't leak a mismatched UA.
 API_DEFAULT_HEADERS = {
     "Accept": "application/json",
     "Accept-Language": "en",
@@ -122,25 +81,31 @@ API_DEFAULT_HEADERS = {
 
 
 async def async_setup_platform(
-        hass: HomeAssistant,
-        config: ConfigType,
-        async_add_entities: AddEntitiesCallback,
-        discovery_info: DiscoveryInfoType | None = None,
+    hass: HomeAssistant,
+    config: ConfigType,
+    async_add_entities: AddEntitiesCallback,
+    discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up the sensor platform."""
     if discovery_info is None:
         return
 
-    # Shared token state in hass.data[DOMAIN]
-    # Set tokens on restart (if not already set)
+    entry_id = discovery_info.get("entry_id")
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if entry_id and entry_id in domain_data:
+        token_bucket = domain_data[entry_id]
+    else:
+        token_bucket = domain_data
+
     for k in ("access_token", "refresh_token", "access_token_expiry_time"):
         if discovery_info.get(k) is not None and discovery_info.get(k) != "":
-            hass.data[DOMAIN][k] = discovery_info.get(k)
-    hass.data[DOMAIN]["token_lock"] = asyncio.Lock()
+            token_bucket[k] = discovery_info.get(k)
+    if "token_lock" not in token_bucket:
+        token_bucket["token_lock"] = asyncio.Lock()
 
     main_sensor = CLPSensor(
         hass=hass,
-        sensor_type='main',
+        sensor_type="main",
         name=discovery_info.get(CONF_NAME, "CLP"),
         timeout=int(float(discovery_info.get(CONF_TIMEOUT, 30) or 30)),
         type=discovery_info.get(CONF_TYPE, ""),
@@ -150,13 +115,17 @@ async def async_setup_platform(
         get_bimonthly=discovery_info.get(CONF_GET_BIMONTHLY, False),
         get_daily=discovery_info.get(CONF_GET_DAILY, False),
         get_hourly=discovery_info.get(CONF_GET_HOURLY, False),
-        get_hourly_days=int(float(discovery_info.get(CONF_GET_HOURLY_DAYS, 1) or 1)),
+        get_hourly_days=int(float(discovery_info.get(CONF_GET_HOURLY_DAYS, 2) or 2)),
         custom_fuel_cents=discovery_info.get(CONF_CUSTOM_FUEL_CENTS),
         custom_fixed_rate=discovery_info.get(CONF_CUSTOM_FIXED_RATE),
         custom_subsidy=discovery_info.get(CONF_CUSTOM_SUBSIDY),
         custom_rate_entity=discovery_info.get(CONF_CUSTOM_RATE_ENTITY),
+        entry_id=entry_id,
     )
-    hass.data[DOMAIN].setdefault("sensors", []).append(main_sensor)
+
+    if entry_id and entry_id in domain_data and isinstance(domain_data[entry_id], dict):
+        domain_data[entry_id].setdefault("sensors", []).append(main_sensor)
+    domain_data.setdefault("sensors", []).append(main_sensor)
     entities: list[SensorEntity] = [main_sensor]
 
     # Add child sensors for main sensor
@@ -182,38 +151,38 @@ async def async_setup_platform(
             )
         )
 
-    async_add_entities(entities, update_before_add=True)
-
     if discovery_info.get(CONF_RES_ENABLE, False):
-        async_add_entities(
-            [
-                CLPSensor(
-                    hass=hass,
-                    sensor_type='renewable_energy',
-                    name=discovery_info.get(CONF_RES_NAME, "CLP Renewable Energy"),
-                    timeout=int(float(discovery_info.get(CONF_TIMEOUT, 30) or 30)),
-                    type=discovery_info.get(CONF_RES_TYPE, ""),
-                    get_acct=False,
-                    get_bill=discovery_info.get(CONF_RES_GET_BILL, False),
-                    get_estimation=False,
-                    get_bimonthly=False,
-                    get_daily=discovery_info.get(CONF_RES_GET_DAILY, False),
-                    get_hourly=discovery_info.get(CONF_RES_GET_HOURLY, False),
-                    get_hourly_days=int(float(discovery_info.get(CONF_RES_GET_HOURLY_DAYS, 1) or 1)),
-                ),
-            ],
-            update_before_add=True,
+        res_name = f"{main_sensor.name} Renewable Energy"
+        res_sensor = CLPSensor(
+            hass=hass,
+            sensor_type="renewable_energy",
+            name=res_name,
+            timeout=int(float(discovery_info.get(CONF_TIMEOUT, 30) or 30)),
+            type=discovery_info.get(CONF_TYPE, ""),
+            get_acct=False,
+            get_bill=True,
+            get_estimation=False,
+            get_bimonthly=True,
+            get_daily=True,
+            get_hourly=True,
+            get_hourly_days=int(float(discovery_info.get(CONF_GET_HOURLY_DAYS, 2) or 2)),
+            entry_id=entry_id,
         )
+        if entry_id and entry_id in domain_data and isinstance(domain_data[entry_id], dict):
+            domain_data[entry_id].setdefault("sensors", []).append(res_sensor)
+        domain_data.setdefault("sensors", []).append(res_sensor)
+        entities.append(res_sensor)
+
+    async_add_entities(entities, update_before_add=True)
 
 
 async def async_setup_entry(
-        hass: HomeAssistant,
-        config_entry: ConfigEntry,
-        async_add_entities: AddEntitiesCallback,
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensor platform from a config entry."""
-    # Merge config_entry.data and config_entry.options, options take precedence
-    merged = {**config_entry.data, **config_entry.options}
+    merged = {**config_entry.data, **config_entry.options, "entry_id": config_entry.entry_id}
     await async_setup_platform(
         hass,
         {},
@@ -222,64 +191,57 @@ async def async_setup_entry(
     )
 
 
-def get_dates(timezone):
-    return {
-        "yesterday": datetime.datetime.now(timezone) + datetime.timedelta(days=-1),
-        "today": datetime.datetime.now(timezone),
-        "tomorrow": datetime.datetime.now(timezone) + datetime.timedelta(days=1),
-        "one_year_two_months_ago": (datetime.datetime.now(timezone) - relativedelta.relativedelta(years=1, months=2)).replace(day=datetime.datetime.now(timezone).day),
-        "last_month": (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=-1)),
-        "this_month": datetime.datetime.now(timezone).replace(day=1),
-        "next_month": (datetime.datetime.now(timezone).replace(day=1) + relativedelta.relativedelta(months=1)),
-    }
-
-
 def handle_errors(func):
     """Record a fetch failure on the entity and swallow it so sibling fetches in
     the same update cycle still run. FatalAuthError is re-raised so async_update
-    can stop the cycle. Retries are driven by Home Assistant's own polling,
-    rate-limited by the @Throttle on async_update."""
+    can stop the cycle. Retries are driven by Home Assistant's polling."""
     async def wrapper(self, *args, **kwargs):
         try:
             return await func(self, *args, **kwargs)
         except FatalAuthError:
             raise
+        except (asyncio.TimeoutError, ConnectionError, OSError) as e:
+            self._error = str(e)
+            _LOGGER.warning("%s: Connection temporarily failed in %s: %s", self._name, func.__name__, e)
+            return None
         except Exception as e:
             self._error = str(e)
-            _LOGGER.error(f"{self._name} ERROR: {e}", exc_info=True)
+            _LOGGER.error("%s ERROR in %s: %s", self._name, func.__name__, e, exc_info=True)
             return None
 
     return wrapper
 
 
 class CLPSensor(SensorEntity):
-    _timezone = pytz.timezone('Asia/Hong_Kong')
+    _timezone = ZoneInfo("Asia/Hong_Kong")
 
     def __init__(
-            self,
-            hass,
-            sensor_type: str,
-            name: str,
-            timeout: int,
-            type: str = None,
-            get_acct: bool = False,
-            get_bill: bool = False,
-            get_estimation: bool = False,
-            get_bimonthly: bool = False,
-            get_daily: bool = False,
-            get_hourly: bool = False,
-            get_hourly_days: int = 1,
-            custom_fuel_cents: float | None = None,
-            custom_fixed_rate: float | None = None,
-            custom_subsidy: float | None = None,
-            custom_rate_entity: str | None = None,
+        self,
+        hass: HomeAssistant,
+        sensor_type: str,
+        name: str,
+        timeout: int,
+        type: str = None,
+        get_acct: bool = False,
+        get_bill: bool = False,
+        get_estimation: bool = False,
+        get_bimonthly: bool = False,
+        get_daily: bool = False,
+        get_hourly: bool = False,
+        get_hourly_days: int = 2,
+        custom_fuel_cents: float | None = None,
+        custom_fixed_rate: float | None = None,
+        custom_subsidy: float | None = None,
+        custom_rate_entity: str | None = None,
+        entry_id: str | None = None,
     ) -> None:
-        _LOGGER.debug(f"[SENSOR INIT] type={sensor_type}, name={name}")
+        _LOGGER.debug("[SENSOR INIT] type=%s, name=%s, entry_id=%s", sensor_type, name, entry_id)
         self.hass = hass
         self._sensor_type = sensor_type
         self._name = name
         self._timeout = timeout
-        self._type = type
+        self._type = type or ""
+        self._entry_id = entry_id
         self._get_acct = get_acct
         self._get_bill = get_bill
         self._get_estimation = get_estimation
@@ -296,10 +258,14 @@ class CLPSensor(SensorEntity):
         self._account_number = None
         self._state_data_type = None
         self._error = None
+        self._fatal_error = False
+        self._daily_backfill_done = False
+
         self._attr_device_class = SensorDeviceClass.ENERGY
         self._attr_native_value = None
         self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-        self._attr_state_class = SensorStateClass.TOTAL
+        # Interval readings must not be marked as TOTAL to prevent corrupt recorder jumps
+        self._attr_state_class = None
         self._attr_name = name
         self._attr_unique_id = f"clphk_{sensor_type}_{name.replace(' ', '_').lower()}"
 
@@ -317,6 +283,10 @@ class CLPSensor(SensorEntity):
         self._no_account_warned = False
         self._multi_account_warned = False
         self._sub_sensors: list[CLPSubSensor] = []
+
+    @property
+    def available(self) -> bool:
+        return bool(self._access_token) and not self._fatal_error
 
     @property
     def sensor_type(self) -> str:
@@ -359,7 +329,7 @@ class CLPSensor(SensorEntity):
         return self._custom_rate_entity
 
     async def async_fetch_monthly_tariff(self, force: bool = False) -> dict:
-        """Fetch latest residential tariff rates (fuel cost adjustment, rebates) from CLP official API."""
+        """Fetch latest residential tariff rates from CLP official API."""
         now = datetime.datetime.now(self._timezone)
         current_ym = (now.year, now.month)
         if not force and self._latest_tariff and self._latest_tariff.get("year_month") == current_ym:
@@ -480,7 +450,7 @@ class CLPSensor(SensorEntity):
         if bill_list and bimonthly:
             b_kwh = bimonthly[0].get("kwh")
             b_total = bill_list[0].get("total")
-            if b_kwh and b_kwh > 0 and b_total is not None:
+            if b_kwh and b_kwh > 0 and b_total is not None and b_total > 0:
                 return round(b_total / b_kwh, 4)
 
         # 6. Fallback formula
@@ -526,7 +496,10 @@ class CLPSensor(SensorEntity):
 
     @property
     def _token_state(self):
-        return self.hass.data[DOMAIN]
+        domain_data = self.hass.data.get(DOMAIN, {})
+        if self._entry_id and self._entry_id in domain_data and isinstance(domain_data[self._entry_id], dict):
+            return domain_data[self._entry_id]
+        return domain_data
 
     @property
     def _access_token(self):
@@ -579,21 +552,17 @@ class CLPSensor(SensorEntity):
 
         return attr
 
-
     async def api_request(
-            self,
-            method: str,
-            url: str,
-            headers: dict = None,
-            json: dict = None,
-            params: dict = None,
-            retry_on_expired: bool = True,
+        self,
+        method: str,
+        url: str,
+        headers: dict = None,
+        json: dict = None,
+        params: dict = None,
+        retry_on_expired: bool = True,
     ):
-        if not self._access_token and 'eligibilityCheckAndLogin' not in url and 'refresh_token' not in url:
-            raise Exception("Problematic authorization. Please configure again, or change your IP address.")
-
-        if json:
-            _LOGGER.debug("REQUEST %s %s", method, url)
+        if not self._access_token and 'refresh_token' not in url:
+            raise Exception("Problematic authorization. Please configure credentials again.")
 
         merged_headers = dict(API_DEFAULT_HEADERS)
         if json is not None:
@@ -615,7 +584,6 @@ class CLPSensor(SensorEntity):
         status = response.status_code
 
         if status >= 400:
-            # curl_cffi buffers the full body, so .text is always available.
             error_content = response.text or ""
             try:
                 error_data = jsonlib.loads(error_content)
@@ -623,22 +591,13 @@ class CLPSensor(SensorEntity):
                 error_data = None
 
             error_code = error_data.get("code") if isinstance(error_data, dict) else None
-            # Log status + endpoint + parsed error code only; never the raw body
-            # or the request URL query string (may carry tokens / account PII).
             _LOGGER.error("HTTP %s for %s (code=%s)", status, url, error_code)
 
             if 400 <= status < 500:
-                # Attempt token refresh on:
-                # - Known expiry codes: 906 (token expired), 100001 (LR access_token error)
-                # - 403 with no parseable JSON error (connection closed / edge deny)
                 should_refresh = (
                     retry_on_expired
                     and "refresh_token" not in url
                     and self._refresh_token
-                    # Only refresh when the failed request actually carried an
-                    # access token. Login/refresh calls have no Authorization, so
-                    # they can never re-enter _refresh_access_token (which would
-                    # deadlock on the non-reentrant token_lock).
                     and (headers or {}).get("Authorization")
                     and (
                         error_code in (906, 100001)
@@ -646,7 +605,10 @@ class CLPSensor(SensorEntity):
                     )
                 )
                 if should_refresh:
-                    _LOGGER.debug("Access token likely expired (status=%s, code=%s, body_parsed=%s). Refreshing and retrying once.", status, error_code, error_data is not None)
+                    _LOGGER.debug(
+                        "Access token likely expired (status=%s, code=%s). Refreshing and retrying.",
+                        status, error_code,
+                    )
                     stale_token = (headers or {}).get("Authorization")
                     await self._refresh_access_token(stale_access_token=stale_token)
                     retry_headers = dict(headers or {})
@@ -661,15 +623,10 @@ class CLPSensor(SensorEntity):
                         retry_on_expired=False,
                     )
 
-                # Only clear credentials on a genuine, unrecoverable auth failure.
-                # Transient/non-auth 4xx (400/404/408/409/422/429/...) must NOT
-                # wipe tokens - that would kill the integration on a rate limit
-                # or a single bad request.
                 if is_auth_failure(status, error_code):
                     await self._handle_auth_failure(status, error_content or "")
                     raise FatalAuthError(
-                        f"CLPHK authentication failed (HTTP {status}, code {error_code}); "
-                        "tokens cleared, integration stopped."
+                        f"CLPHK authentication failed (HTTP {status}, code {error_code}); tokens cleared."
                     )
 
                 raise Exception(f"CLPHK API error: HTTP {status} for {url} (code {error_code})")
@@ -690,34 +647,16 @@ class CLPSensor(SensorEntity):
         return response_data
 
     async def _refresh_access_token(self, stale_access_token=None):
-        """Refresh access token using stored refresh token and persist it.
-
-        Serialized via the shared token_lock so the two sensors cannot both POST
-        the (rotating) refresh_token concurrently. stale_access_token is the token
-        the failed request carried; if it no longer matches once we hold the lock,
-        another task already refreshed (or auth was cleared) and we must not fire a
-        second refresh with a possibly-rotated refresh_token.
-        """
-        token_state = self.hass.data.get(DOMAIN)
+        """Refresh access token using stored refresh token and persist it."""
+        token_state = self._token_state
         token_lock = token_state.get("token_lock") if token_state else None
         if token_lock is None:
-            raise FatalAuthError(
-                "CLPHK token state/lock unavailable; integration is unloading or not initialized."
-            )
+            raise FatalAuthError("CLPHK token state/lock unavailable.")
 
         async with token_lock:
-            # Unload-then-reload can replace hass.data[DOMAIN] with a fresh dict/lock
-            # while we waited; our lock would then guard nothing.
-            if self.hass.data.get(DOMAIN) is not token_state:
-                raise FatalAuthError(
-                    "CLPHK state replaced (reload) while awaiting refresh lock; aborting."
-                )
-
             if stale_access_token is not None and self._access_token != stale_access_token:
                 if self._access_token is None:
-                    raise FatalAuthError(
-                        "CLPHK auth cleared by a concurrent failure; aborting refresh."
-                    )
+                    raise FatalAuthError("CLPHK auth cleared by a concurrent failure; aborting refresh.")
                 _LOGGER.debug("Access token already refreshed by another task; skipping refresh.")
                 return
 
@@ -740,20 +679,12 @@ class CLPSensor(SensorEntity):
             status = response.status_code
 
             if is_transient(status):
-                # Rate limit / timeout on the refresh endpoint is temporary; keep the
-                # tokens and let the caller back off instead of forcing reconfigure.
-                raise Exception(
-                    f"Refresh token request temporarily failed with {status}: {response_text[:200]}"
-                )
+                raise Exception(f"Refresh token request temporarily failed with {status}")
             if 400 <= status < 500:
                 await self._handle_auth_failure(status, response_text)
-                raise FatalAuthError(
-                    "Refresh token invalid/expired. CLPHK integration stopped; please reconfigure tokens."
-                )
+                raise FatalAuthError("Refresh token invalid/expired. Please reconfigure tokens.")
             if status >= 500:
-                raise Exception(
-                    f"Refresh token request failed with {status}: {response_text[:200]}"
-                )
+                raise Exception(f"Refresh token request failed with {status}")
 
             try:
                 response_json = jsonlib.loads(response_text)
@@ -762,51 +693,53 @@ class CLPSensor(SensorEntity):
 
             tokens = parse_refresh_tokens(response_json)
             if tokens is None:
-                # Well-formed 200 without usable tokens is unrecoverable: the
-                # refresh token may already be rotated/consumed, so retrying is
-                # futile. Stop cleanly instead of KeyError -> retry loop.
-                await self._handle_auth_failure(
-                    status,
-                    response_text,
-                    detail="refresh response was missing token fields",
-                )
-                raise FatalAuthError(
-                    "Refresh response missing access_token/refresh_token; "
-                    "tokens cleared, integration stopped."
-                )
+                await self._handle_auth_failure(status, response_text, detail="missing token fields")
+                raise FatalAuthError("Refresh response missing tokens; integration stopped.")
+
             self._access_token, self._refresh_token, self._access_token_expiry_time = tokens
 
-            _LOGGER.debug(f"[SENSOR UPDATE] Persisting refreshed tokens to config entry.")
-            config_entries = self.hass.config_entries.async_entries(DOMAIN)
-            if config_entries:
-                entry = config_entries[0]
-                data = dict(entry.data)
+            _LOGGER.debug("[SENSOR UPDATE] Persisting refreshed tokens to config entry.")
+            target_entry = None
+            if self._entry_id:
+                target_entry = self.hass.config_entries.async_get_entry(self._entry_id)
+            if not target_entry:
+                entries = self.hass.config_entries.async_entries(DOMAIN)
+                target_entry = entries[0] if entries else None
+
+            if target_entry:
+                data = dict(target_entry.data)
                 data["access_token"] = self._access_token
                 data["refresh_token"] = self._refresh_token
                 data["access_token_expiry_time"] = self._access_token_expiry_time
-                self.hass.config_entries.async_update_entry(entry, data=data)
+                self.hass.config_entries.async_update_entry(target_entry, data=data)
 
     async def _handle_auth_failure(self, status: int, body: str, detail: str = None):
         """Clear tokens, notify frontend, and stop integration on an auth failure."""
+        self._fatal_error = True
         self._account_number = None
         self._access_token = None
         self._refresh_token = None
         self._access_token_expiry_time = None
 
-        config_entries = self.hass.config_entries.async_entries(DOMAIN)
-        for entry in config_entries:
-            data = dict(entry.data)
+        target_entry = None
+        if self._entry_id:
+            target_entry = self.hass.config_entries.async_get_entry(self._entry_id)
+        if not target_entry:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+            target_entry = entries[0] if entries else None
+
+        if target_entry:
+            data = dict(target_entry.data)
             data["access_token"] = ""
             data["refresh_token"] = ""
             data["access_token_expiry_time"] = ""
-            self.hass.config_entries.async_update_entry(entry, data=data)
+            self.hass.config_entries.async_update_entry(target_entry, data=data)
 
         reason = f" ({detail})" if detail else ""
         message = (
-            "CLPHK authentication failed"
-            f"{reason} with HTTP {status}. Tokens were cleared and the integration "
-            "was stopped. Please reconfigure Access Token and Refresh Token.\n\n"
-            f"Response: {body[:300]}"
+            f"CLPHK authentication failed{reason} with HTTP {status}. "
+            "Tokens were cleared and the integration was stopped. "
+            "Please re-authenticate your CLP account."
         )
         try:
             await self.hass.services.async_call(
@@ -815,38 +748,33 @@ class CLPSensor(SensorEntity):
                 {
                     "title": "CLPHK Authentication Failed",
                     "message": message,
-                    "notification_id": "clphk_auth_failed",
+                    "notification_id": f"clphk_auth_failed_{self._entry_id or 'default'}",
                 },
                 blocking=False,
             )
         except Exception:
             _LOGGER.warning("Failed to create persistent notification for CLPHK auth failure.")
 
-        for entry in config_entries:
+        if target_entry:
             try:
                 self.hass.async_create_task(
                     self.hass.config_entries.flow.async_init(
                         DOMAIN,
-                        context={"source": "reauth", "entry_id": entry.entry_id},
-                        data=entry.data,
+                        context={"source": "reauth", "entry_id": target_entry.entry_id},
+                        data=target_entry.data,
                     )
                 )
             except Exception as ex:
                 _LOGGER.debug("Could not start reauth flow: %s", ex)
-            self.hass.async_create_task(self.hass.config_entries.async_unload(entry.entry_id))
-
-
 
     async def _import_hourly_statistics(self, hourly_records: list[dict]):
-        """Import raw hourly energy data directly into Home Assistant Recorder Statistics.
-        Accurately aligns CLP data with true historical hour slots (hour-start).
-        """
+        """Import raw hourly energy data directly into Home Assistant Recorder Statistics."""
         if not hourly_records:
             return
 
         statistic_id = f"{DOMAIN}:{self._sensor_type}_hourly_energy"
 
-        # 1. Deduplicate per hour in UTC (keeping raw hourly values)
+        # 1. Deduplicate per hour in UTC
         raw_by_utc: dict[datetime.datetime, float] = {}
         for record in hourly_records:
             dt = record.get("start")
@@ -857,7 +785,7 @@ class CLPSensor(SensorEntity):
             if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
                 dt_utc = dt.astimezone(datetime.timezone.utc)
             else:
-                dt_local = self._timezone.localize(dt)
+                dt_local = dt.replace(tzinfo=self._timezone)
                 dt_utc = dt_local.astimezone(datetime.timezone.utc)
 
             dt_utc = dt_utc.replace(minute=0, second=0, microsecond=0)
@@ -873,24 +801,29 @@ class CLPSensor(SensorEntity):
         base_sum = 0.0
         try:
             last_stats = await get_instance(self.hass).async_add_executor_job(
-                get_last_statistics, self.hass, 200, statistic_id, True, {"sum"}
+                get_last_statistics, self.hass, 500, statistic_id, True, {"sum", "state"}
             )
             if last_stats and statistic_id in last_stats:
+                found = False
                 for stat in last_stats[statistic_id]:
                     s_time = stat.get("start")
-                    if isinstance(s_time, (int, float)):
-                        rec_ts = float(s_time)
-                    elif hasattr(s_time, "timestamp"):
-                        rec_ts = s_time.timestamp()
-                    else:
-                        continue
-                    if rec_ts < earliest_ts:
+                    rec_ts = float(s_time) if isinstance(s_time, (int, float)) else (s_time.timestamp() if hasattr(s_time, "timestamp") else None)
+                    if rec_ts is not None and rec_ts < earliest_ts:
                         base_sum = stat.get("sum") or 0.0
+                        found = True
                         break
+                if not found and last_stats[statistic_id]:
+                    # Keep continuity if records exist but all are within the window
+                    oldest = min(
+                        last_stats[statistic_id],
+                        key=lambda x: x.get("start") if isinstance(x.get("start"), (int, float)) else (x.get("start").timestamp() if hasattr(x.get("start"), "timestamp") else 0),
+                    )
+                    o_sum = oldest.get("sum") or 0.0
+                    o_state = oldest.get("state") or 0.0
+                    base_sum = max(0.0, round(o_sum - o_state, 4))
         except Exception as ex:
             _LOGGER.debug("Could not query base statistics for %s: %s", statistic_id, ex)
 
-        # 3. Build statistics list with cumulative running sum
         statistics: list[StatisticData] = []
         running_sum = base_sum
         for ts in all_utc_timestamps:
@@ -907,7 +840,7 @@ class CLPSensor(SensorEntity):
         meta_kwargs: dict = {
             "has_mean": False,
             "has_sum": True,
-            "name": f"{self._name} Hourly Energy",
+            "name": f"{self._name} Hourly Energy (for Energy Dashboard)",
             "source": DOMAIN,
             "statistic_id": statistic_id,
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
@@ -917,32 +850,33 @@ class CLPSensor(SensorEntity):
             meta_kwargs["unit_class"] = "energy"
 
         metadata = StatisticMetaData(**meta_kwargs)
-
-        _LOGGER.debug(
-            "[STATISTICS] Importing %d raw hourly records for %s (from %s to %s, base_sum=%.4f)",
-            len(statistics),
-            statistic_id,
-            statistics[0]["start"],
-            statistics[-1]["start"],
-            base_sum,
-        )
         async_add_external_statistics(self.hass, metadata, statistics)
 
-        # Also import hourly cost statistics
+        # Import hourly cost statistics
         effective_rate = self.get_effective_tariff_rate()
         statistic_cost_id = f"{DOMAIN}:{self._sensor_type}_hourly_cost"
         base_cost_sum = 0.0
         try:
             last_cost_stats = await get_instance(self.hass).async_add_executor_job(
-                get_last_statistics, self.hass, 200, statistic_cost_id, True, {"sum"}
+                get_last_statistics, self.hass, 500, statistic_cost_id, True, {"sum", "state"}
             )
             if last_cost_stats and statistic_cost_id in last_cost_stats:
+                found_cost = False
                 for stat in last_cost_stats[statistic_cost_id]:
                     s_time = stat.get("start")
                     rec_ts = float(s_time) if isinstance(s_time, (int, float)) else (s_time.timestamp() if hasattr(s_time, "timestamp") else None)
                     if rec_ts is not None and rec_ts < earliest_ts:
                         base_cost_sum = stat.get("sum") or 0.0
+                        found_cost = True
                         break
+                if not found_cost and last_cost_stats[statistic_cost_id]:
+                    oldest_c = min(
+                        last_cost_stats[statistic_cost_id],
+                        key=lambda x: x.get("start") if isinstance(x.get("start"), (int, float)) else (x.get("start").timestamp() if hasattr(x.get("start"), "timestamp") else 0),
+                    )
+                    oc_sum = oldest_c.get("sum") or 0.0
+                    oc_state = oldest_c.get("state") or 0.0
+                    base_cost_sum = max(0.0, round(oc_sum - oc_state, 4))
         except Exception as ex:
             _LOGGER.debug("Could not query base cost statistics for %s: %s", statistic_cost_id, ex)
 
@@ -976,9 +910,7 @@ class CLPSensor(SensorEntity):
         async_add_external_statistics(self.hass, metadata_cost, cost_statistics)
 
     async def _import_daily_statistics(self, daily_records: list[dict]):
-        """Import official daily energy data directly into Home Assistant Recorder Statistics.
-        Provides 100% exact daily billing figures matching official CLP totals.
-        """
+        """Import official daily energy data directly into Home Assistant Recorder Statistics."""
         if not daily_records:
             return
 
@@ -987,7 +919,7 @@ class CLPSensor(SensorEntity):
         daily_by_utc: dict[datetime.datetime, float] = {}
         for record in daily_records:
             start_str = str(record.get("startDate") or record.get("startdate") or "")
-            kwh = safe_float(record.get("kwhTotal") if self._sensor_type == "main" else record.get("kwhtotal"))
+            kwh = safe_float(record.get("kwhTotal"))
             if len(start_str) < 8 or kwh is None:
                 continue
 
@@ -995,10 +927,7 @@ class CLPSensor(SensorEntity):
             if not dt:
                 continue
 
-            if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
-                dt_local = dt.astimezone(self._timezone)
-            else:
-                dt_local = self._timezone.localize(dt)
+            dt_local = dt.replace(tzinfo=self._timezone)
             dt_utc = dt_local.astimezone(datetime.timezone.utc)
             dt_utc = dt_utc.replace(minute=0, second=0, microsecond=0)
             daily_by_utc[dt_utc] = round(kwh, 4)
@@ -1009,24 +938,28 @@ class CLPSensor(SensorEntity):
         all_utc_timestamps = sorted(daily_by_utc.keys())
         earliest_ts = all_utc_timestamps[0].timestamp()
 
-        # Query base sum before earliest_ts from recorder
         base_sum = 0.0
         try:
             last_stats = await get_instance(self.hass).async_add_executor_job(
-                get_last_statistics, self.hass, 200, statistic_id, True, {"sum"}
+                get_last_statistics, self.hass, 500, statistic_id, True, {"sum", "state"}
             )
             if last_stats and statistic_id in last_stats:
+                found = False
                 for stat in last_stats[statistic_id]:
                     s_time = stat.get("start")
-                    if isinstance(s_time, (int, float)):
-                        rec_ts = float(s_time)
-                    elif hasattr(s_time, "timestamp"):
-                        rec_ts = s_time.timestamp()
-                    else:
-                        continue
-                    if rec_ts < earliest_ts:
+                    rec_ts = float(s_time) if isinstance(s_time, (int, float)) else (s_time.timestamp() if hasattr(s_time, "timestamp") else None)
+                    if rec_ts is not None and rec_ts < earliest_ts:
                         base_sum = stat.get("sum") or 0.0
+                        found = True
                         break
+                if not found and last_stats[statistic_id]:
+                    oldest = min(
+                        last_stats[statistic_id],
+                        key=lambda x: x.get("start") if isinstance(x.get("start"), (int, float)) else (x.get("start").timestamp() if hasattr(x.get("start"), "timestamp") else 0),
+                    )
+                    o_sum = oldest.get("sum") or 0.0
+                    o_state = oldest.get("state") or 0.0
+                    base_sum = max(0.0, round(o_sum - o_state, 4))
         except Exception as ex:
             _LOGGER.debug("Could not query base statistics for %s: %s", statistic_id, ex)
 
@@ -1046,7 +979,7 @@ class CLPSensor(SensorEntity):
         meta_kwargs: dict = {
             "has_mean": False,
             "has_sum": True,
-            "name": f"{self._name} Daily Energy",
+            "name": f"{self._name} Daily Energy (Official Daily Totals)",
             "source": DOMAIN,
             "statistic_id": statistic_id,
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
@@ -1056,33 +989,33 @@ class CLPSensor(SensorEntity):
             meta_kwargs["unit_class"] = "energy"
 
         metadata = StatisticMetaData(**meta_kwargs)
-
-        _LOGGER.debug(
-            "[STATISTICS] Importing %d daily records for %s (from %s to %s, base_sum=%.4f)",
-            len(statistics),
-            statistic_id,
-            statistics[0]["start"],
-            statistics[-1]["start"],
-            base_sum,
-        )
         async_add_external_statistics(self.hass, metadata, statistics)
 
-        # Also import daily cost statistics
+        # Import daily cost statistics
         effective_rate = self.get_effective_tariff_rate()
-
         statistic_cost_id = f"{DOMAIN}:{self._sensor_type}_daily_cost"
         base_cost_sum = 0.0
         try:
             last_cost_stats = await get_instance(self.hass).async_add_executor_job(
-                get_last_statistics, self.hass, 200, statistic_cost_id, True, {"sum"}
+                get_last_statistics, self.hass, 500, statistic_cost_id, True, {"sum", "state"}
             )
             if last_cost_stats and statistic_cost_id in last_cost_stats:
+                found_c = False
                 for stat in last_cost_stats[statistic_cost_id]:
                     s_time = stat.get("start")
                     rec_ts = float(s_time) if isinstance(s_time, (int, float)) else (s_time.timestamp() if hasattr(s_time, "timestamp") else None)
                     if rec_ts is not None and rec_ts < earliest_ts:
                         base_cost_sum = stat.get("sum") or 0.0
+                        found_c = True
                         break
+                if not found_c and last_cost_stats[statistic_cost_id]:
+                    oldest_c = min(
+                        last_cost_stats[statistic_cost_id],
+                        key=lambda x: x.get("start") if isinstance(x.get("start"), (int, float)) else (x.get("start").timestamp() if hasattr(x.get("start"), "timestamp") else 0),
+                    )
+                    oc_sum = oldest_c.get("sum") or 0.0
+                    oc_state = oldest_c.get("state") or 0.0
+                    base_cost_sum = max(0.0, round(oc_sum - oc_state, 4))
         except Exception as ex:
             _LOGGER.debug("Could not query base cost statistics for %s: %s", statistic_cost_id, ex)
 
@@ -1124,15 +1057,11 @@ class CLPSensor(SensorEntity):
                 "Authorization": self._access_token,
             },
         )
-        # This integration reports a single account: the first entry with status
-        # 'Active'. Warn once if the login owns more than one active account so the
-        # user knows the rest are not reported.
         active_accounts = [item for item in (response['data'] or []) if item.get('status') == 'Active']
         if len(active_accounts) > 1 and not self._multi_account_warned:
             _LOGGER.warning(
-                "%s: login has %d active CLP accounts; only the first is reported, the rest are ignored.",
-                self._name,
-                len(active_accounts),
+                "%s: login has %d active CLP accounts; only the first is reported.",
+                self._name, len(active_accounts),
             )
             self._multi_account_warned = True
         active_data = next(iter(active_accounts), None)
@@ -1143,8 +1072,6 @@ class CLPSensor(SensorEntity):
             if not self._no_account_warned:
                 _LOGGER.warning("%s: no active CLP account with a usable account number; will keep retrying.", self._name)
                 self._no_account_warned = True
-            # Leave _single_task_last_fetch_time unset so account detail is retried
-            # next cycle (recover from a transient empty/incomplete response).
             return
 
         self._account_number = ca_no
@@ -1155,7 +1082,6 @@ class CLPSensor(SensorEntity):
         }
         self._no_account_warned = False
         self._single_task_last_fetch_time = datetime.datetime.now(self._timezone)
-
 
     @handle_errors
     async def main_get_bill(self):
@@ -1201,7 +1127,6 @@ class CLPSensor(SensorEntity):
             self._bills = bills
             self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
-
     @handle_errors
     async def main_get_estimation(self):
         response = await self.api_request(
@@ -1230,10 +1155,10 @@ class CLPSensor(SensorEntity):
             }
             self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
-
     @handle_errors
     async def main_get_bimonthly(self):
-        dates = get_dates(self._timezone)
+        now = datetime.datetime.now(self._timezone)
+        one_year_two_months_ago = now - relativedelta.relativedelta(years=1, months=2)
 
         response = await self.api_request(
             method="POST",
@@ -1243,16 +1168,16 @@ class CLPSensor(SensorEntity):
             },
             json={
                 "ca": self._account_number,
-                "fromDate": dates["one_year_two_months_ago"].strftime('%Y%m%d000000'),
+                "fromDate": one_year_two_months_ago.strftime('%Y%m%d000000'),
                 "mode": "Bill",
-                "toDate": dates["today"].strftime('%Y%m%d000000'),
+                "toDate": now.strftime('%Y%m%d000000'),
                 "type": "Unit",
             },
         )
 
         if response['data']:
             results = response['data'].get('results') or []
-            if results and (self._type == '' or self._type.upper() == 'BIMONTHLY'):
+            if results and self._type.upper() == 'BIMONTHLY':
                 self._state_data_type = 'BIMONTHLY'
                 self._attr_native_value = safe_float(results[0].get('totKwh'))
                 self._attr_last_reset = parse_datetime(results[0].get('endabrpe'), '%Y%m%d')
@@ -1267,15 +1192,14 @@ class CLPSensor(SensorEntity):
                 self._bimonthly = sorted(bimonthly, key=lambda x: x['end'] or datetime.datetime.min, reverse=True)
             self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
-
     @handle_errors
     async def main_get_daily(self):
         now = datetime.datetime.now(self._timezone)
         this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         # CLP Daily API allows up to ~31 days per request.
-        # Fetch the past 5 months (month-by-month) to backfill historical daily statistics.
-        months_to_fetch = 5
+        # Backfill 5 months only on initial setup; subsequent 12h updates fetch current month only.
+        months_to_fetch = 5 if not getattr(self, "_daily_backfill_done", False) else 1
         all_results: list[dict] = []
         for i in range(months_to_fetch - 1, -1, -1):
             m_start = this_month - relativedelta.relativedelta(months=i)
@@ -1302,12 +1226,12 @@ class CLPSensor(SensorEntity):
                 _LOGGER.debug("Could not fetch daily records for %s: %s", m_start.strftime("%Y-%m"), ex)
 
         if all_results:
+            self._daily_backfill_done = True
             results = all_results
-            if results and (self._type == '' or self._type.upper() == 'DAILY'):
+            if results and self._type.upper() == 'DAILY':
                 self._state_data_type = 'DAILY'
                 self._attr_native_value = safe_float(results[-1].get('kwhTotal'))
-                self._attr_last_reset = parse_datetime(
-                    results[-1].get('expireDate'), '%Y%m%d%H%M%S')
+                self._attr_last_reset = parse_datetime(results[-1].get('expireDate'), '%Y%m%d%H%M%S')
 
             for row in results:
                 start_str = str(row.get('startDate') or '')
@@ -1327,9 +1251,7 @@ class CLPSensor(SensorEntity):
                 self._daily = sorted(daily, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
 
             await self._import_daily_statistics(results)
-
             self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
-
 
     @handle_errors
     async def main_get_hourly(self):
@@ -1337,7 +1259,7 @@ class CLPSensor(SensorEntity):
             await self.main_get_daily()
 
         hourly = []
-        fetch_days = max(3, int(self._get_hourly_days or 1))
+        fetch_days = max(1, min(2, int(self._get_hourly_days or 2)))
         for i in range(1, fetch_days + 1):
             from_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(fetch_days - i))
             to_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(fetch_days - i - 1))
@@ -1366,15 +1288,12 @@ class CLPSensor(SensorEntity):
                 if i == fetch_days and (self._type == '' or self._type.upper() == 'HOURLY'):
                     self._state_data_type = 'HOURLY'
                     self._attr_native_value = safe_float(results[-1].get('kwhTotal'))
-                    self._attr_last_reset = parse_datetime(
-                        results[-1].get('expireDate'), '%Y%m%d%H%M%S')
+                    self._attr_last_reset = parse_datetime(results[-1].get('expireDate'), '%Y%m%d%H%M%S')
 
                 if self._get_hourly:
                     for row in results:
                         clp_dt = parse_datetime(row.get('startDate'), '%Y%m%d%H%M%S')
                         if clp_dt:
-                            # CLP Hourly reports hour-end timestamps (01:00 to 24:00/00:00).
-                            # Home Assistant requires interval start timestamps (00:00 to 23:00).
                             hour_start = clp_dt - datetime.timedelta(hours=1)
                             hourly.append({
                                 'start': hour_start,
@@ -1383,15 +1302,13 @@ class CLPSensor(SensorEntity):
 
                 self._hourly_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
-        if self._get_hourly:
+        if self._get_hourly and hourly:
             self._hourly = sorted(hourly, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
             await self._import_hourly_statistics(hourly)
 
-
     @handle_errors
     async def renewable_get_bimonthly(self):
-        dates = get_dates(self._timezone)
-
+        now = datetime.datetime.now(self._timezone)
         response = await self.api_request(
             method="POST",
             url="https://api.clp.com.hk/ts1/ms/renew/fit/dashboard",
@@ -1401,34 +1318,30 @@ class CLPSensor(SensorEntity):
             json={
                 "caNo": self._account_number,
                 "mode": "B",
-                "startDate": dates["today"].strftime("%m/%d/%Y"),
+                "startDate": now.strftime("%m/%d/%Y"),
             },
         )
 
-        consumption_data = (response['data'] or {}).get('consumptionData') or []
+        consumption_data = (response.get('data') or {}).get('consumptionData') or []
         if consumption_data:
-            if self._type == '' or self._type.upper() == 'BIMONTHLY':
+            if self._type.upper() == 'BIMONTHLY':
                 self._state_data_type = 'BIMONTHLY'
                 self._attr_native_value = safe_float(consumption_data[-1].get('kwhtotal'))
                 self._attr_last_reset = parse_datetime(consumption_data[-1].get('enddate'), '%Y%m%d%H%M%S')
 
-            if self._get_bill:
-                bills = []
-                for row in consumption_data:
-                    bills.append({
-                        'start': parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S'),
-                        'end': parse_datetime(row.get('enddate'), '%Y%m%d%H%M%S'),
-                        'kwh': safe_float(row.get('kwhtotal')),
-                    })
-                self._bills = sorted(bills, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
-
+            bills = []
+            for row in consumption_data:
+                bills.append({
+                    'start': parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S'),
+                    'end': parse_datetime(row.get('enddate'), '%Y%m%d%H%M%S'),
+                    'kwh': safe_float(row.get('kwhtotal')),
+                })
+            self._bills = sorted(bills, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
             self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
-
 
     @handle_errors
     async def renewable_get_daily(self):
-        dates = get_dates(self._timezone)
-
+        now = datetime.datetime.now(self._timezone)
         response = await self.api_request(
             method="POST",
             url="https://api.clp.com.hk/ts1/ms/renew/fit/dashboard",
@@ -1438,13 +1351,13 @@ class CLPSensor(SensorEntity):
             json={
                 "caNo": self._account_number,
                 "mode": "D",
-                "startDate": dates["today"].strftime("%m/%d/%Y"),
+                "startDate": now.strftime("%m/%d/%Y"),
             },
         )
 
-        consumption_data = (response['data'] or {}).get('consumptionData') or []
+        consumption_data = (response.get('data') or {}).get('consumptionData') or []
         if consumption_data:
-            if self._type == '' or self._type.upper() == 'DAILY':
+            if self._type.upper() == 'DAILY':
                 for row in sorted(consumption_data, key=lambda x: x.get('startdate') or '', reverse=True):
                     if row.get('validateStatus') == 'Y':
                         self._state_data_type = 'DAILY'
@@ -1452,29 +1365,23 @@ class CLPSensor(SensorEntity):
                         self._attr_last_reset = parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S')
                         break
 
-            if self._get_daily:
-                daily = []
-
-                for row in consumption_data:
-                    daily.append({
-                        'start': parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S'),
-                        'kwh': safe_float(row.get('kwhtotal')),
-                    })
-
-                self._daily = sorted(daily, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
+            daily = []
+            for row in consumption_data:
+                daily.append({
+                    'start': parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S'),
+                    'kwh': safe_float(row.get('kwhtotal')),
+                })
+            self._daily = sorted(daily, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
 
             await self._import_daily_statistics(consumption_data)
-
             self._daily_task_last_fetch_time = datetime.datetime.now(self._timezone)
-
 
     @handle_errors
     async def renewable_get_hourly(self):
         hourly = []
-        fetch_days = max(2, int(self._get_hourly_days or 1))
+        fetch_days = max(1, min(2, int(self._get_hourly_days or 2)))
         for i in range(1, fetch_days + 1):
             start_date = datetime.datetime.now(self._timezone) + datetime.timedelta(days=-(fetch_days - i))
-
             if datetime.time(0, 0) <= datetime.datetime.now(self._timezone).time() < datetime.time(4, 0):
                 start_date = start_date + datetime.timedelta(days=-1)
 
@@ -1491,7 +1398,7 @@ class CLPSensor(SensorEntity):
                 },
             )
 
-            consumption_data = (response['data'] or {}).get('consumptionData') or []
+            consumption_data = (response.get('data') or {}).get('consumptionData') or []
             if consumption_data:
                 if i == fetch_days and (self._type == '' or self._type.upper() == 'HOURLY'):
                     for row in sorted(consumption_data, key=lambda x: x.get('startdate') or '', reverse=True):
@@ -1501,39 +1408,34 @@ class CLPSensor(SensorEntity):
                             self._attr_last_reset = parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S')
                             break
 
-                if self._get_hourly:
-                    for row in consumption_data:
-                        if row.get('validateStatus') == 'N':
-                            continue
-
-                        hourly.append({
-                            'start': parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S'),
-                            'kwh': safe_float(row.get('kwhtotal')),
-                        })
+                for row in consumption_data:
+                    if row.get('validateStatus') == 'N':
+                        continue
+                    hourly.append({
+                        'start': parse_datetime(row.get('startdate'), '%Y%m%d%H%M%S'),
+                        'kwh': safe_float(row.get('kwhtotal')),
+                    })
 
                 self._hourly_task_last_fetch_time = datetime.datetime.now(self._timezone)
 
-        if self._get_hourly:
+        if hourly:
             self._hourly = sorted(hourly, key=lambda x: x['start'] or datetime.datetime.min, reverse=True)
             await self._import_hourly_statistics(hourly)
 
-
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self) -> None:
-        _LOGGER.debug(f"[SENSOR UPDATE] Starting update for {self._sensor_type}, access_token_expiry_time={self._access_token_expiry_time}")
+        _LOGGER.debug("[SENSOR UPDATE] Starting update for %s", self._name)
         self._error = None
         try:
             await self._fetch_all()
         except FatalAuthError as e:
-            # Credentials are gone and the integration is being unloaded; surface
-            # the reason on the entity and stop. Home Assistant's own polling
-            # (rate-limited by @Throttle) drives retries for recoverable errors.
             self._error = str(e)
+            self._fatal_error = True
             _LOGGER.error("%s: fatal auth error; integration stopped.", self._name)
 
     async def _fetch_all(self) -> None:
         if not self._access_token:
-            _LOGGER.debug(f"[SENSOR UPDATE] No access token, skipping data fetch.")
+            _LOGGER.debug("[SENSOR UPDATE] No access token, skipping data fetch.")
             return
 
         if self._sensor_type == 'main':
@@ -1543,7 +1445,7 @@ class CLPSensor(SensorEntity):
 
             if not self._single_task_last_fetch_time:
                 if not self._account_number or self._get_acct:
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching account detail.")
+                    _LOGGER.debug("[SENSOR UPDATE] Fetching account detail.")
                     await self.main_get_account_detail()
 
             if not self._account_number:
@@ -1552,49 +1454,44 @@ class CLPSensor(SensorEntity):
 
             if not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL:
                 if self._get_bill:
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching bill.")
+                    _LOGGER.debug("[SENSOR UPDATE] Fetching bill.")
                     await self.main_get_bill()
 
                 if self._get_estimation:
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching estimation.")
+                    _LOGGER.debug("[SENSOR UPDATE] Fetching estimation.")
                     await self.main_get_estimation()
 
-                if self._get_bimonthly or self._type == '' or self._type.upper() == 'BIMONTHLY':
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching bimonthly.")
+                if self._get_bimonthly or self._type.upper() == 'BIMONTHLY':
+                    _LOGGER.debug("[SENSOR UPDATE] Fetching bimonthly.")
                     await self.main_get_bimonthly()
 
-                if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching daily.")
+                if self._get_daily or self._type.upper() == 'DAILY':
+                    _LOGGER.debug("[SENSOR UPDATE] Fetching daily.")
                     await self.main_get_daily()
 
             if not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + HOURLY_TASK_INTERVAL:
                 if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching hourly.")
+                    _LOGGER.debug("[SENSOR UPDATE] Fetching hourly.")
                     await self.main_get_hourly()
 
         elif self._sensor_type == 'renewable_energy':
             if not self._single_task_last_fetch_time:
                 if not self._account_number:
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching renewable account detail.")
+                    _LOGGER.debug("[SENSOR UPDATE] Fetching renewable account detail.")
                     await self.main_get_account_detail()
 
             if not self._account_number:
-                _LOGGER.debug("%s: no account number; skipping data fetch this cycle.", self._name)
+                _LOGGER.debug("%s: no account number; skipping renewable data fetch.", self._name)
                 return
 
             if not self._daily_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._daily_task_last_fetch_time + DAILY_TASK_INTERVAL:
-                if self._get_bill or self._type == '' or self._type.upper() == 'BIMONTHLY':
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching renewable bimonthly.")
-                    await self.renewable_get_bimonthly()
-
-                if self._get_daily or self._type == '' or self._type.upper() == 'DAILY':
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching renewable daily.")
-                    await self.renewable_get_daily()
+                _LOGGER.debug("[SENSOR UPDATE] Fetching renewable bimonthly & daily.")
+                await self.renewable_get_bimonthly()
+                await self.renewable_get_daily()
 
             if not self._hourly_task_last_fetch_time or datetime.datetime.now(self._timezone) > self._hourly_task_last_fetch_time + HOURLY_TASK_INTERVAL:
-                if self._get_hourly or self._type == '' or self._type.upper() == 'HOURLY':
-                    _LOGGER.debug(f"[SENSOR UPDATE] Fetching renewable hourly.")
-                    await self.renewable_get_hourly()
+                _LOGGER.debug("[SENSOR UPDATE] Fetching renewable hourly.")
+                await self.renewable_get_hourly()
 
         if self._type == '' and self._state_data_type is not None:
             self._type = self._state_data_type
@@ -1605,7 +1502,7 @@ class CLPSensor(SensorEntity):
 
 
 class CLPSubSensor(SensorEntity):
-    """Sub-sensor for specific CLP metric (e.g. projected cost, current period consumption)."""
+    """Sub-sensor for specific CLP metric (e.g. projected cost, base tariff rate)."""
 
     def __init__(
         self,
@@ -1619,11 +1516,12 @@ class CLPSubSensor(SensorEntity):
         self._parent = parent
         self._sub_key = sub_key
         self._attr_name = name
-        self._attr_unique_id = f"clphk_{parent.sensor_type}_{sub_key}"
         self._attr_suggested_object_id = f"clp_{sub_key}"
+        self._attr_unique_id = f"clphk_{parent.sensor_type}_{sub_key}"
         self._attr_device_class = device_class
         self._attr_native_unit_of_measurement = unit_of_measurement
         self._attr_state_class = state_class
+        self._attr_should_poll = False
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -1674,6 +1572,7 @@ class CLPSubSensor(SensorEntity):
 
             fuel_cents = self._parent.custom_fuel_cents if (self._parent.custom_fuel_cents and self._parent.custom_fuel_cents > 0) else tariff.get("fuel_cents", 47.4)
             ym = tariff.get("year_month")
+            tariff_period = f"{ym[0]}-{ym[1]:02d}" if isinstance(ym, (tuple, list)) and len(ym) >= 2 else None
             return {
                 "tariff_mode": mode,
                 "base_tariff_rate_hkd": round(float(tariff.get("energy_charge", 0.945)), 4),
@@ -1682,13 +1581,14 @@ class CLPSubSensor(SensorEntity):
                 "special_fuel_rebate_cents": tariff.get("special_fuel_rebate_cents", 0.0),
                 "energy_saving_rebate_hkd": round(float(tariff.get("rebate", 0.172)), 4),
                 "subsidy_hkd": self._parent.custom_subsidy or 0.0,
-                "tariff_period": f"{ym[0]}-{ym[1]:02d}" if ym else None,
+                "tariff_period": tariff_period,
                 "calculation_basis": "Effective Rate = Estimated Total Cost / Estimated Total Consumption",
                 "last_tariff_synced": tariff.get("last_synced"),
             }
         elif self._sub_key == "base_tariff":
             tariff = self._parent.latest_tariff or {}
             ym = tariff.get("year_month")
+            tariff_period = f"{ym[0]}-{ym[1]:02d}" if isinstance(ym, (tuple, list)) and len(ym) >= 2 else None
             est = self._parent.estimation or {}
             curr_kwh = est.get("current_consumption") or est.get("estimation_consumption") or 0.0
             tier = 1
@@ -1709,6 +1609,7 @@ class CLPSubSensor(SensorEntity):
             current_tier_rate = tier_rates[tier - 1]
 
             return {
+                "description": "Base tariff rate for tier 1 (first 400 kWh). See current_tier_rate for rate based on consumption.",
                 "unit": "HKD/kWh",
                 "tier_1_first_400kwh": 0.945,
                 "tier_2_next_600kwh": 1.079,
@@ -1719,16 +1620,17 @@ class CLPSubSensor(SensorEntity):
                 "tier_7_above_4200kwh": 1.890,
                 "current_tier": tier,
                 "current_tier_rate": current_tier_rate,
-                "tariff_period": f"{ym[0]}-{ym[1]:02d}" if ym else None,
+                "tariff_period": tariff_period,
                 "last_tariff_synced": tariff.get("last_synced"),
             }
         elif self._sub_key == "fuel_adjustment":
             tariff = self._parent.latest_tariff or {}
             ym = tariff.get("year_month")
+            tariff_period = f"{ym[0]}-{ym[1]:02d}" if isinstance(ym, (tuple, list)) and len(ym) >= 2 else None
             return {
                 "is_custom_override": bool(self._parent.custom_fuel_cents and self._parent.custom_fuel_cents > 0),
                 "special_fuel_rebate_cents": tariff.get("special_fuel_rebate_cents", 0.0),
-                "tariff_period": f"{ym[0]}-{ym[1]:02d}" if ym else None,
+                "tariff_period": tariff_period,
                 "last_tariff_synced": tariff.get("last_synced"),
             }
         return {}

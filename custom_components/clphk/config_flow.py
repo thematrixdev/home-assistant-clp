@@ -110,6 +110,10 @@ def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_GET_BILL,
                 default=bool(defaults.get(CONF_GET_BILL, True)),
             ): BooleanSelector(),
+            vol.Optional(
+                CONF_RES_ENABLE,
+                default=bool(defaults.get(CONF_RES_ENABLE, False)),
+            ): BooleanSelector(),
 
             # 3. Optional Token Update (leave blank to keep current credentials unchanged)
             vol.Optional(
@@ -174,12 +178,14 @@ def _build_setup_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_GET_BILL,
                 default=bool(defaults.get(CONF_GET_BILL, True)),
             ): BooleanSelector(),
+            vol.Optional(
+                CONF_RES_ENABLE,
+                default=bool(defaults.get(CONF_RES_ENABLE, False)),
+            ): BooleanSelector(),
         }
     )
 
 
-
-CONF_COMBINED_TOKENS = "combined_tokens"
 
 
 def _build_tokens_schema(defaults: dict[str, Any]) -> vol.Schema:

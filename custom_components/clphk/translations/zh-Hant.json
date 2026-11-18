@@ -37,6 +37,7 @@
           "get_daily": "同步每日官方用電量",
           "get_estimation": "同步當期用電預估與電費",
           "get_bill": "同步歷史帳單記錄",
+          "renewable_energy_sensor_enable": "啟用上網電價 (FiT) 可再生能源監測",
           "combined_tokens": "更新 Token：一鍵貼上完整內容（可選）",
           "access_token": "更新 Access Token（可選）",
           "refresh_token": "更新 Refresh Token（可選）"
@@ -51,6 +52,7 @@
           "get_daily": "獲取中電官方每日精確電量統計（100% 契合中電官方每日計費數值）。",
           "get_estimation": "獲取中電官方針對當前帳期的已用電量、預估總用電量及預估總電費。",
           "get_bill": "獲取過去 14 個月的已出正式帳單記錄及最近一期帳單總金額。",
+          "renewable_energy_sensor_enable": "若您的中電用電帳戶參與了「上網電價 (FiT)」計劃（例如安裝了太陽能光伏或風力發電系統），開啟後將產生專屬的可再生能源發電感測器並接入 HA 能源儀表板。",
           "combined_tokens": "若無需更新 Token 請留空；若 Token 過期，可在此貼上複製的全部憑證文字。",
           "access_token": "若已在上方一鍵貼上則留空。支援直接貼上記名 UUID、Bearer 或 Base64 憑證。",
           "refresh_token": "若已在上方一鍵貼上則留空。用於在 Access Token 過期時自動刷新憑證。"
@@ -85,6 +87,7 @@
           "get_daily": "同步每日官方用電量",
           "get_estimation": "同步當期用電預估與電費",
           "get_bill": "同步歷史帳單記錄",
+          "renewable_energy_sensor_enable": "啟用上網電價 (FiT) 可再生能源監測",
           "combined_tokens": "更新 Token：一鍵貼上完整內容（可選）",
           "access_token": "更新 Access Token（可選）",
           "refresh_token": "更新 Refresh Token（可選）"
@@ -99,6 +102,7 @@
           "get_daily": "獲取中電官方每日精確電量統計（100% 契合中電官方每日計費數值）。",
           "get_estimation": "獲取中電官方針對當前帳期的已用電量、預估總用電量及預估總電費。",
           "get_bill": "獲取過去 14 個月的已出正式帳單記錄及最近一期帳單總金額。",
+          "renewable_energy_sensor_enable": "若您的中電用電帳戶參與了「上網電價 (FiT)」計劃（例如安裝了太陽能光伏或風力發電系統），開啟後將產生專屬的可再生能源發電感測器並接入 HA 能源儀表板。",
           "combined_tokens": "若無需更新 Token 請留空；若 Token 過期，可在此貼上複製的全部憑證文字。",
           "access_token": "若已在上方一鍵貼上則留空。支援直接貼上記名 UUID、Bearer 或 Base64 憑證。",
           "refresh_token": "若已在上方一鍵貼上則留空。用於在 Access Token 過期時自動刷新憑證。"
@@ -118,6 +122,7 @@
           "get_daily": "同步每日官方用電量",
           "get_estimation": "同步當期用電預估與電費",
           "get_bill": "同步歷史帳單記錄",
+          "renewable_energy_sensor_enable": "啟用上網電價 (FiT) 可再生能源監測",
           "combined_tokens": "更新 Token：一鍵貼上完整內容（可選）",
           "access_token": "更新 Access Token（可選）",
           "refresh_token": "更新 Refresh Token（可選）"
@@ -132,6 +137,7 @@
           "get_daily": "獲取中電官方每日精確電量統計（100% 契合中電官方每日計費數值）。",
           "get_estimation": "獲取中電官方針對當前帳期的已用電量、預估總用電量及預估總電費。",
           "get_bill": "獲取過去 14 個月的已出正式帳單記錄及最近一期帳單總金額。",
+          "renewable_energy_sensor_enable": "若您的中電用電帳戶參與了「上網電價 (FiT)」計劃（例如安裝了太陽能光伏或風力發電系統），開啟後將產生專屬的可再生能源發電感測器並接入 HA 能源儀表板。",
           "combined_tokens": "若無需更新 Token 請留空；若 Token 過期，可在此貼上複製的全部憑證文字。",
           "access_token": "若已在上方一鍵貼上則留空。支援直接貼上記名 UUID、Bearer 或 Base64 憑證。",
           "refresh_token": "若已在上方一鍵貼上則留空。用於在 Access Token 過期時自動刷新憑證。"

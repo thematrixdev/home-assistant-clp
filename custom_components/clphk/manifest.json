@@ -9,8 +9,7 @@
   "codeowners": ["@kanshurichard", "@thematrixdev"],
   "config_flow": true,
   "requirements": [
-    "curl_cffi>=0.15.0",
-    "pytz"
+    "curl_cffi>=0.15.0"
   ],
   "loggers": ["clphk"],
   "quality_scale": "silver",
