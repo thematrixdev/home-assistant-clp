@@ -129,7 +129,7 @@ This integration automatically backfills **Home Assistant Long-Term Statistics**
 ### Standard Sensors
 | Entity ID (Suggested/Default) | Entity Name | Unit | Description |
 | :--- | :--- | :---: | :--- |
-| `sensor.dian_li` | Main Meter Sensor | `kWh` | Primary reading entity (configurable for hourly, daily, or bi-monthly state) |
+| `sensor.clp` | Main Meter Sensor | `kWh` | Primary reading entity (configurable for hourly, daily, or bi-monthly state) |
 | `sensor.clp_projected_cost` | Projected Cost | `HKD` | Projected total electricity cost for the current billing period |
 | `sensor.clp_current_period_consumption` | Current Period Consumption | `kWh` | Actual cumulative energy consumed so far in the active billing period |
 | `sensor.clp_projected_consumption` | Projected Consumption | `kWh` | Projected total energy consumption for the billing period |
@@ -143,8 +143,8 @@ This integration automatically backfills **Home Assistant Long-Term Statistics**
 Located in the "Diagnostic" category on the Home Assistant device page:
 | Entity ID | Entity Name | State | Key Attributes |
 | :--- | :--- | :---: | :--- |
-| `sensor.dian_li_tier_consumption` | Tier Consumption | `Tier X` (e.g. `Tier 1`) | **Tier consumption breakdown**: `current_tier_used_kwh`, `current_tier_remaining_kwh`, individual `tier_1_used_kwh` ~ `tier_N_used_kwh`, `tier_consumption_breakdown` dict, and `projected_tier_breakdown` |
-| `sensor.dian_li_tier_rates` | Tier Rates | Active rate (e.g. `0.945`) | **Tier pricing schedule**: `current_tier_rate_hkd`, `tier_1_rate_hkd` ~ `tier_N_rate_hkd`, limits `tier_1_limit_kwh` ~ `tier_N_limit_kwh`, and `tier_rates_breakdown` dict |
+| `sensor.clp_tier_consumption` | Tier Consumption | `Tier X` (e.g. `Tier 1`) | **Tier consumption breakdown**: `current_tier_used_kwh`, `current_tier_remaining_kwh`, individual `tier_1_used_kwh` ~ `tier_N_used_kwh`, `tier_consumption_breakdown` dict, and `projected_tier_breakdown` |
+| `sensor.clp_tier_rates` | Tier Rates | Active rate (e.g. `0.945`) | **Tier pricing schedule**: `current_tier_rate_hkd`, `tier_1_rate_hkd` ~ `tier_N_rate_hkd`, limits `tier_1_limit_kwh` ~ `tier_N_limit_kwh`, and `tier_rates_breakdown` dict |
 
 ---
 
@@ -155,7 +155,7 @@ Located in the "Diagnostic" category on the Home Assistant device page:
 | `combined_tokens` | string | ` ` | One-click paste field for full token console output |
 | `access_token` | string | ` ` | CLP Access Token (leave blank if pasted above) |
 | `refresh_token` | string | ` ` | CLP Refresh Token (leave blank if pasted above) |
-| `name` | string | `电力` | Integration/device prefix name |
+| `name` | string | `CLP` | Integration/device prefix name |
 | `timeout` | int | `30` | API connection timeout in seconds |
 | `custom_fixed_rate` | float | `0.0` | **Custom Fixed Price (HKD/kWh)**: Default 0 uses official tiered calculation; positive value enforces a flat rate. |
 | `custom_fuel_cents` | float | `0.0` | **Custom Fuel Clause (cents/kWh)**: Default 0 auto-syncs official rate; positive value locks the rate manually. |
@@ -169,7 +169,7 @@ Located in the "Diagnostic" category on the Home Assistant device page:
 | `get_estimation` | boolean | `True` | Sync current period consumption and cost estimation |
 | `get_bill` | boolean | `True` | Sync historical issued bills (past 14 months) |
 | `renewable_energy_sensor_enable` | boolean | `False` | Enable [Renewable Energy Feed-in Tariff (FiT)](https://www.clp.com.hk/en/business/low-carbon-solutions/renewable-energy/feed-in-tariff-business/application) tracking |
-| `renewable_energy_sensor_name` | string | `电力 Renewable Energy` | Renewable energy sensor name |
+| `renewable_energy_sensor_name` | string | `CLP Renewable Energy` | Renewable energy sensor name |
 | `renewable_energy_sensor_get_bill` | boolean | `True` | Sync FiT generation billing records |
 | `renewable_energy_sensor_get_daily` | boolean | `True` | Sync daily renewable generation data |
 | `renewable_energy_sensor_get_hourly` | boolean | `True` | Sync hourly renewable generation data |

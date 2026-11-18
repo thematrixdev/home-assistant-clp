@@ -138,7 +138,7 @@
 ### 常规传感器
 | 实体 ID (推荐/默认) | 实体名称 | 单位 | 描述 |
 | :--- | :--- | :---: | :--- |
-| `sensor.dian_li` | 主电量传感器 | `kWh` | 中电主读数实体（可根据选项配置为小时、日或双月状态） |
+| `sensor.clp` | 主电量传感器 | `kWh` | 中电主读数实体（可根据选项配置为小时、日或双月状态） |
 | `sensor.clp_projected_cost` | Projected Cost | `HKD` | 中电官方/公式综合预估当期账单总费用 |
 | `sensor.clp_current_period_consumption` | Current Period Consumption | `kWh` | 本计费账期至今已消耗的实际总电量 |
 | `sensor.clp_projected_consumption` | Projected Consumption | `kWh` | 中电官方结合历史用电预测的本期总消耗电量 |
@@ -152,8 +152,8 @@
 位于设备页面「诊断信息」区域，用于深入洞察电量阶梯分布：
 | 实体 ID | 实体名称 | 主状态 | 核心属性说明 |
 | :--- | :--- | :---: | :--- |
-| `sensor.dian_li_tier_consumption` | Tier Consumption | `Tier X` (如 `Tier 1`) | **各阶梯用量剖析**：`current_tier_used_kwh`（当前档已用）、`current_tier_remaining_kwh`（当前档剩余）、各档用电 `tier_1_used_kwh` ~ `tier_N_used_kwh`、用量字典 `tier_consumption_breakdown`、预估用量分布 `projected_tier_breakdown` |
-| `sensor.dian_li_tier_rates` | Tier Rates | 当前档单价 (如 `0.945`) | **各阶梯费率明细**：`current_tier_rate_hkd`、各档单价 `tier_1_rate_hkd` ~ `tier_N_rate_hkd`、分界限额 `tier_1_limit_kwh` ~ `tier_N_limit_kwh`、单价字典 `tier_rates_breakdown` |
+| `sensor.clp_tier_consumption` | Tier Consumption | `Tier X` (如 `Tier 1`) | **各阶梯用量剖析**：`current_tier_used_kwh`（当前档已用）、`current_tier_remaining_kwh`（当前档剩余）、各档用电 `tier_1_used_kwh` ~ `tier_N_used_kwh`、用量字典 `tier_consumption_breakdown`、预估用量分布 `projected_tier_breakdown` |
+| `sensor.clp_tier_rates` | Tier Rates | 当前档单价 (如 `0.945`) | **各阶梯费率明细**：`current_tier_rate_hkd`、各档单价 `tier_1_rate_hkd` ~ `tier_N_rate_hkd`、分界限额 `tier_1_limit_kwh` ~ `tier_N_limit_kwh`、单价字典 `tier_rates_breakdown` |
 
 ---
 
@@ -164,7 +164,7 @@
 | `combined_tokens` | string | ` ` | 一键粘贴完整 Token 内容（自动解析 ACT 与 RCT） |
 | `access_token` | string | ` ` | 中电访问凭证（若已在上方一键框粘贴则可留空） |
 | `refresh_token` | string | ` ` | 中电刷新凭证（若已在上方一键框粘贴则可留空） |
-| `name` | string | `电力` | 集成/设备名称（将作为各子传感器命名前缀） |
+| `name` | string | `CLP` | 集成/设备名称（将作为各子传感器命名前缀） |
 | `timeout` | int | `30` | 网络连接与 API 超时时间（秒） |
 | `custom_fixed_rate` | float | `0.0` | **自定义固定电价（港币/度）**：填 0 时自动采用中电动态阶梯计费；若填入数值（如 1.25）则强制按固定电价核算。 |
 | `custom_fuel_cents` | float | `0.0` | **自定义燃料调整费（分/度）**：填 0 时每月自动同步中电官方最新公布的燃料费；填入具体数值可手动锁定。 |
@@ -178,7 +178,7 @@
 | `get_estimation` | boolean | `True` | 是否获取当期用电预估与电费 |
 | `get_bill` | boolean | `True` | 是否获取过去 14 个月已出账单记录 |
 | `renewable_energy_sensor_enable` | boolean | `False` | 是否启用中电[可再生能源民间上网电价计划 (FiT)](https://www.clp.com.hk/zh/business/low-carbon-solutions/renewable-energy/feed-in-tariff-business/application) 传感器 |
-| `renewable_energy_sensor_name` | string | `电力 Renewable Energy` | 可再生能源传感器名称 |
+| `renewable_energy_sensor_name` | string | `CLP Renewable Energy` | 可再生能源传感器名称 |
 | `renewable_energy_sensor_get_bill` | boolean | `True` | 是否同步可再生能源发电账单收益 |
 | `renewable_energy_sensor_get_daily` | boolean | `True` | 是否同步可再生能源每日发电量 |
 | `renewable_energy_sensor_get_hourly` | boolean | `True` | 是否同步可再生能源每小时发电量 |

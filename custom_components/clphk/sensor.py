@@ -287,6 +287,12 @@ class CLPSensor(SensorEntity):
         # Interval readings must not be marked as TOTAL to prevent corrupt recorder jumps
         self._attr_state_class = None
         self._attr_name = name
+        if sensor_type == "main":
+            self._attr_suggested_object_id = "clp"
+        elif sensor_type == "renewable_energy":
+            self._attr_suggested_object_id = "clp_renewable_energy"
+        else:
+            self._attr_suggested_object_id = f"clp_{sensor_type}"
         self._attr_unique_id = f"clphk_{sensor_type}_{name.replace(' ', '_').lower()}"
 
         self._account = None

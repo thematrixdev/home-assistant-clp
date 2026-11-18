@@ -138,7 +138,7 @@
 ### 常規感測器
 | 實體 ID (推薦/預設) | 實體名稱 | 單位 | 描述 |
 | :--- | :--- | :---: | :--- |
-| `sensor.dian_li` | 主電量感測器 | `kWh` | 中電主讀數實體（可根據選項設定為小時、日或雙月狀態） |
+| `sensor.clp` | 主電量感測器 | `kWh` | 中電主讀數實體（可根據選項設定為小時、日或雙月狀態） |
 | `sensor.clp_projected_cost` | Projected Cost | `HKD` | 中電官方/公式綜合預估當期帳單總費用 |
 | `sensor.clp_current_period_consumption` | Current Period Consumption | `kWh` | 本計費帳期至今已消耗的實際總電量 |
 | `sensor.clp_projected_consumption` | Projected Consumption | `kWh` | 中電官方結合歷史用電預測的本期總消耗電量 |
@@ -152,8 +152,8 @@
 位於裝置頁面「診斷資訊」區域，用於深入洞悉電量階梯分佈：
 | 實體 ID | 實體名稱 | 主狀態 | 核心屬性說明 |
 | :--- | :--- | :---: | :--- |
-| `sensor.dian_li_tier_consumption` | Tier Consumption | `Tier X` (如 `Tier 1`) | **各階梯用量剖析**：`current_tier_used_kwh`（當前檔已用）、`current_tier_remaining_kwh`（當前檔剩餘）、各檔用電 `tier_1_used_kwh` ~ `tier_N_used_kwh`、用量字典 `tier_consumption_breakdown`、預估用量分佈 `projected_tier_breakdown` |
-| `sensor.dian_li_tier_rates` | Tier Rates | 當前檔單價 (如 `0.945`) | **各階梯費率明細**：`current_tier_rate_hkd`、各檔單價 `tier_1_rate_hkd` ~ `tier_N_rate_hkd`、分界限額 `tier_1_limit_kwh` ~ `tier_N_limit_kwh`、單價字典 `tier_rates_breakdown` |
+| `sensor.clp_tier_consumption` | Tier Consumption | `Tier X` (如 `Tier 1`) | **各階梯用量剖析**：`current_tier_used_kwh`（當前檔已用）、`current_tier_remaining_kwh`（當前檔剩餘）、各檔用電 `tier_1_used_kwh` ~ `tier_N_used_kwh`、用量字典 `tier_consumption_breakdown`、預估用量分佈 `projected_tier_breakdown` |
+| `sensor.clp_tier_rates` | Tier Rates | 當前檔單價 (如 `0.945`) | **各階梯費率明細**：`current_tier_rate_hkd`、各檔單價 `tier_1_rate_hkd` ~ `tier_N_rate_hkd`、分界限額 `tier_1_limit_kwh` ~ `tier_N_limit_kwh`、單價字典 `tier_rates_breakdown` |
 
 ---
 
@@ -164,7 +164,7 @@
 | `combined_tokens` | string | ` ` | 一鍵貼上完整 Token 內容（自動解析 ACT 與 RCT） |
 | `access_token` | string | ` ` | 中電存取憑證（若已在上方一鍵框貼上則可留空） |
 | `refresh_token` | string | ` ` | 中電刷新憑證（若已在上方一鍵框貼上則可留空） |
-| `name` | string | `電力` | 整合/裝置名稱（將作為各子感測器命名前綴） |
+| `name` | string | `CLP` | 整合/裝置名稱（將作為各子感測器命名前綴） |
 | `timeout` | int | `30` | 網路連線與 API 逾時時間（秒） |
 | `custom_fixed_rate` | float | `0.0` | **自訂固定電價（港幣/度）**：填 0 時自動採用中電動態階梯計費；若填入數值（如 1.25）則強制按固定電價核算。 |
 | `custom_fuel_cents` | float | `0.0` | **自訂燃料調整費（分/度）**：填 0 時每月自動同步中電官方最新公布的燃料費；填入具體數值可手動鎖定。 |
@@ -178,7 +178,7 @@
 | `get_estimation` | boolean | `True` | 是否獲取當期用電預估與電費 |
 | `get_bill` | boolean | `True` | 是否獲取過去 14 個月已出帳單記錄 |
 | `renewable_energy_sensor_enable` | boolean | `False` | 是否啟用中電[可再生能源民間上網電價計劃 (FiT)](https://www.clp.com.hk/zh/business/low-carbon-solutions/renewable-energy/feed-in-tariff-business/application) 感測器 |
-| `renewable_energy_sensor_name` | string | `電力 Renewable Energy` | 可再生能源感測器名稱 |
+| `renewable_energy_sensor_name` | string | `CLP Renewable Energy` | 可再生能源感測器名稱 |
 | `renewable_energy_sensor_get_bill` | boolean | `True` | 是否同步可再生能源發電帳單收益 |
 | `renewable_energy_sensor_get_daily` | boolean | `True` | 是否同步可再生能源每日發電量 |
 | `renewable_energy_sensor_get_hourly` | boolean | `True` | 是否同步可再生能源每小時發電量 |
